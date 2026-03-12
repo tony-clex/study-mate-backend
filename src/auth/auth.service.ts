@@ -52,7 +52,7 @@ export class AuthService {
       const userName = userMeta?.name;
 
       return {
-        message: 'User registered successfully',
+        message: 'Wow user registered successfully',
         access_token: token,
         user: {
           id: loginData.user.id,
@@ -63,7 +63,7 @@ export class AuthService {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       throw new BadRequestException({
-        message: 'Registration failed',
+        message: 'Sorry registration failed',
         error: errorMessage,
       });
     }
