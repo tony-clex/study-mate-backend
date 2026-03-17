@@ -46,7 +46,7 @@ export class AuthService {
           console.log(
             `Retry ${attempt}/${MAX_RETRIES} for ${operationName} after ${delay}ms...`,
           );
-          // eslint-disable-next-line no-promise-executor-return
+
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
@@ -64,43 +64,40 @@ export class AuthService {
 
     try {
       // Sign up with retry logic
-      await this.withRetry(
-        async () => {
-          const result = await supabase.auth.signUp({
-            email,
-            password,
-            options: { data: { name } },
-          });
+      await this.withRetry(async () => {
+        const result = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { name } },
+        });
 
-          if (result.error) {
-            throw result.error;
-          }
-          return result;
-        },
-        'signUp',
-      );
+        if (result.error) {
+          throw result.error;
+        }
+        return result;
+      }, 'signUp');
 
       // Sign in with retry logic
-      const loginResult = await this.withRetry(
-        async () => {
-          const result = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+      const loginResult = await this.withRetry(async () => {
+        const result = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-          if (result.error) {
-            throw result.error;
-          }
-          return result;
-        },
-        'signIn',
-      );
+        if (result.error) {
+          throw result.error;
+        }
+        return result;
+      }, 'signIn');
 
       if (!loginResult.data?.user) {
         throw new BadRequestException('Failed to log in after registration');
       }
 
-      const payload = { sub: loginResult.data.user.id, email: loginResult.data.user.email };
+      const payload = {
+        sub: loginResult.data.user.id,
+        email: loginResult.data.user.email,
+      };
       const token = this.jwtService.sign(payload);
 
       const userMeta = loginResult.data.user.user_metadata as
@@ -158,20 +155,17 @@ export class AuthService {
 
     try {
       // Sign in with retry logic
-      const result = await this.withRetry(
-        async () => {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+      const result = await this.withRetry(async () => {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-          if (error) {
-            throw error;
-          }
-          return data;
-        },
-        'signIn',
-      );
+        if (error) {
+          throw error;
+        }
+        return data;
+      }, 'signIn');
 
       if (!result?.user) {
         throw new BadRequestException('Invalid email or password');
@@ -198,6 +192,8 @@ export class AuthService {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       const lowerMessage = errorMessage.toLowerCase();
 
+      console.error('[Auth] Login error:', err);
+
       // Detect network/connection errors
       if (
         lowerMessage.includes('fetch failed') ||
@@ -214,7 +210,10 @@ export class AuthService {
       }
 
       // Handle invalid credentials
-      if (lowerMessage.includes('invalid') && lowerMessage.includes('credentials')) {
+      if (
+        lowerMessage.includes('invalid') &&
+        lowerMessage.includes('credentials')
+      ) {
         throw new BadRequestException('Invalid email or password');
       }
 
