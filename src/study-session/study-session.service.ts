@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { supabase } from '../config/supabase.client';
@@ -11,6 +10,13 @@ import {
   StudySessionResponse,
   StudySessionListResponse,
 } from './dto/study-session.dto';
+
+interface StudySessionDbRow {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+}
 
 @Injectable()
 export class StudySessionService {
@@ -29,17 +35,21 @@ export class StudySessionService {
       throw new BadRequestException('Title cannot be empty');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = (await supabase
       .from('study_sessions')
       .insert({
         user_id: userId,
         title: title.trim(),
       })
       .select()
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error) {
       console.error('Supabase insert error:', error);
+      throw new BadRequestException('Failed to create study session');
+    }
+
+    if (!data) {
       throw new BadRequestException('Failed to create study session');
     }
 
@@ -56,18 +66,21 @@ export class StudySessionService {
    * @param userId - The authenticated user's ID from JWT
    */
   async findAll(userId: string): Promise<StudySessionListResponse> {
-    const { data, error } = await supabase
+    const { data, error } = (await supabase
       .from('study_sessions')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })) as {
+      data: StudySessionDbRow[] | null;
+      error: null;
+    };
 
     if (error) {
       console.error('Supabase select error:', error);
       throw new BadRequestException('Failed to fetch study sessions');
     }
 
-    const sessions: StudySessionResponse[] = data.map((session) => ({
+    const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
       id: session.id,
       user_id: session.user_id,
       title: session.title,
@@ -85,13 +98,16 @@ export class StudySessionService {
    * @param userId - The authenticated user's ID from JWT
    * @param sessionId - The session ID to find
    */
-  async findOne(userId: string, sessionId: string): Promise<StudySessionResponse> {
-    const { data, error } = await supabase
+  async findOne(
+    userId: string,
+    sessionId: string,
+  ): Promise<StudySessionResponse> {
+    const { data, error } = (await supabase
       .from('study_sessions')
       .select('*')
       .eq('id', sessionId)
       .eq('user_id', userId)
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error || !data) {
       throw new NotFoundException('Study session not found');
@@ -125,15 +141,15 @@ export class StudySessionService {
     // First check if session exists and belongs to user
     await this.findOne(userId, sessionId);
 
-    const { data, error } = await supabase
+    const { data, error } = (await supabase
       .from('study_sessions')
       .update({ title: title.trim() })
       .eq('id', sessionId)
       .eq('user_id', userId)
       .select()
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
-    if (error) {
+    if (error || !data) {
       console.error('Supabase update error:', error);
       throw new BadRequestException('Failed to update study session');
     }
@@ -151,7 +167,10 @@ export class StudySessionService {
    * @param userId - The authenticated user's ID from JWT
    * @param sessionId - The session ID to delete
    */
-  async remove(userId: string, sessionId: string): Promise<{ message: string }> {
+  async remove(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ message: string }> {
     // First check if session exists and belongs to user
     await this.findOne(userId, sessionId);
 
