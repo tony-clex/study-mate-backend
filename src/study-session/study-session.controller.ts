@@ -13,7 +13,12 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { StudySessionService } from './study-session.service';
-import { CreateStudySessionDto, UpdateStudySessionDto } from './dto/study-session.dto';
+import {
+  CreateStudySessionDto,
+  UpdateStudySessionDto,
+  CreateSessionNoteDto,
+  UpdateSessionNoteDto,
+} from './dto/study-session.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -40,20 +45,12 @@ export class StudySessionController {
     return this.studySessionService.create(userId, createDto);
   }
 
-  /**
-   * Get all study sessions for the authenticated user
-   * GET /api/session/list
-   */
   @Get('list')
   async findAll(@Req() req: AuthenticatedRequest) {
     const userId = req.user.sub;
     return this.studySessionService.findAll(userId);
   }
 
-  /**
-   * Get a single study session by ID
-   * GET /api/session/:id
-   */
   @Get(':id')
   async findOne(
     @Req() req: AuthenticatedRequest,
@@ -63,10 +60,6 @@ export class StudySessionController {
     return this.studySessionService.findOne(userId, id);
   }
 
-  /**
-   * Update a study session
-   * PATCH /api/session/:id
-   */
   @Patch(':id')
   async update(
     @Req() req: AuthenticatedRequest,
@@ -77,10 +70,6 @@ export class StudySessionController {
     return this.studySessionService.update(userId, id, updateDto);
   }
 
-  /**
-   * Delete a study session
-   * DELETE /api/session/:id
-   */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async remove(
@@ -89,5 +78,84 @@ export class StudySessionController {
   ) {
     const userId = req.user.sub;
     return this.studySessionService.remove(userId, id);
+  }
+
+  // ============================================
+  // Session Notes Endpoints
+  // ============================================
+
+  /**
+   * Create a new note for a study session
+   * POST /api/session/:sessionId/notes
+   */
+  @Post(':sessionId/notes')
+  @HttpCode(HttpStatus.CREATED)
+  async createNote(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Body() createDto: CreateSessionNoteDto,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.createNote(userId, {
+      ...createDto,
+      session_id: sessionId,
+    });
+  }
+
+  /**
+   * Get all notes for a study session
+   * GET /api/session/:sessionId/notes
+   */
+  @Get(':sessionId/notes')
+  async findAllNotes(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.findAllNotes(userId, sessionId);
+  }
+
+  /**
+   * Get a single note by ID
+   * GET /api/session/:sessionId/notes/:noteId
+   */
+  @Get(':sessionId/notes/:noteId')
+  async findNoteById(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.findNoteById(userId, noteId);
+  }
+
+  /**
+   * Update a session note
+   * PATCH /api/session/:sessionId/notes/:noteId
+   */
+  @Patch(':sessionId/notes/:noteId')
+  async updateNote(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @Body() updateDto: UpdateSessionNoteDto,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.updateNote(userId, noteId, updateDto);
+  }
+
+  /**
+   * Delete a session note
+   * DELETE /api/session/:sessionId/notes/:noteId
+   */
+  @Delete(':sessionId/notes/:noteId')
+  @HttpCode(HttpStatus.OK)
+  async removeNote(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.removeNote(userId, noteId);
   }
 }
