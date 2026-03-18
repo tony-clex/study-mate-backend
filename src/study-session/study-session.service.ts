@@ -85,7 +85,7 @@ export class StudySessionService {
 
   /**
    * Get all study sessions for the authenticated user
-   * @param userId - The authenticated user's ID from JWT
+   * @param userId
    */
   async findAll(userId: string): Promise<StudySessionListResponse> {
     const { data, error } = (await supabaseAdmin
@@ -162,7 +162,6 @@ export class StudySessionService {
       throw new BadRequestException('Title cannot be empty');
     }
 
-    // First check if session exists and belongs to user
     await this.findOne(userId, sessionId);
 
     const { data, error } = (await supabaseAdmin
@@ -188,7 +187,6 @@ export class StudySessionService {
   }
 
   /**
-   * Delete a study session
    * @param userId - The authenticated user's ID from JWT
    * @param sessionId - The session ID to delete
    */
@@ -212,10 +210,6 @@ export class StudySessionService {
 
     return { message: 'Study session deleted successfully' };
   }
-
-  // ============================================
-  // Session Notes Methods
-  // ============================================
 
   /**
    * Create a new note for a study session
@@ -278,7 +272,6 @@ export class StudySessionService {
     userId: string,
     sessionId: string,
   ): Promise<SessionNoteListResponse> {
-    // Verify the session exists and belongs to the user
     await this.findOne(userId, sessionId);
 
     const { data, error } = (await supabaseAdmin
@@ -360,7 +353,6 @@ export class StudySessionService {
     noteId: string,
     updateDto: UpdateSessionNoteDto,
   ): Promise<SessionNoteResponse> {
-    // First check if note exists and belongs to user
     await this.findNoteById(userId, noteId);
 
     const updateData: Record<string, unknown> = {};
@@ -419,7 +411,6 @@ export class StudySessionService {
     userId: string,
     noteId: string,
   ): Promise<{ message: string }> {
-    // First check if note exists and belongs to user
     await this.findNoteById(userId, noteId);
 
     const { error } = await supabaseAdmin
