@@ -13,7 +13,10 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { StudySessionService } from './study-session.service';
-import { CreateStudySessionDto, UpdateStudySessionDto } from './dto/study-session.dto';
+import {
+  CreateStudySessionDto,
+  UpdateStudySessionDto,
+} from './dto/study-session.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 interface AuthenticatedRequest {
@@ -40,20 +43,12 @@ export class StudySessionController {
     return this.studySessionService.create(userId, createDto);
   }
 
-  /**
-   * Get all study sessions for the authenticated user
-   * GET /api/session/list
-   */
   @Get('list')
   async findAll(@Req() req: AuthenticatedRequest) {
     const userId = req.user.sub;
     return this.studySessionService.findAll(userId);
   }
 
-  /**
-   * Get a single study session by ID
-   * GET /api/session/:id
-   */
   @Get(':id')
   async findOne(
     @Req() req: AuthenticatedRequest,
@@ -63,10 +58,6 @@ export class StudySessionController {
     return this.studySessionService.findOne(userId, id);
   }
 
-  /**
-   * Update a study session
-   * PATCH /api/session/:id
-   */
   @Patch(':id')
   async update(
     @Req() req: AuthenticatedRequest,
@@ -77,10 +68,6 @@ export class StudySessionController {
     return this.studySessionService.update(userId, id, updateDto);
   }
 
-  /**
-   * Delete a study session
-   * DELETE /api/session/:id
-   */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async remove(
