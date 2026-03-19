@@ -4,7 +4,7 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { supabaseAdmin } from '../config/supabase.client';
 
 interface JwtPayload {
   sub: string;
@@ -21,8 +21,6 @@ interface AuthenticatedRequest {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
-
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
@@ -33,12 +31,37 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = authHeader.substring(7);
 
+    if (!token || token.length === 0) {
+      throw new UnauthorizedException('Empty token');
+    }
+
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      // Attach user info to request for use in controllers
-      request.user = payload;
-      request.userId = payload.sub;
-    } catch {
+      const { data: user, error } = await supabaseAdmin.auth.getUser(token);
+
+      if (error) {
+        console.error('[JwtAuthGuard] Supabase getUser error:', error.message);
+        throw new UnauthorizedException('Invalid or expired token');
+      }
+
+      if (!user || !user.user) {
+        console.error('[JwtAuthGuard] No user returned from Supabase');
+        throw new UnauthorizedException('Invalid or expired token');
+      }
+
+      request.user = {
+        sub: user.user.id,
+        email: user.user.email,
+      };
+      request.userId = user.user.id;
+
+      console.log('[JwtAuthGuard] Token validated for user:', user.user.id);
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[JwtAuthGuard] Token verification failed:', errorMessage);
       throw new UnauthorizedException('Invalid or expired token');
     }
 

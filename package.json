@@ -11,8 +11,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint . --ext .ts,.js",
-    "lint:fix": "eslint . --ext .ts,.js --fix",
+    "lint": "eslint . --ext .ts,.js --ignore-pattern 'dist/**'",
+    "lint:fix": "eslint . --ext .ts,.js --fix --ignore-pattern 'dist/**'",
     "format": "prettier --write .",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -23,7 +23,9 @@
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.1",
     "@supabase/supabase-js": "^2.99.1",
@@ -81,7 +83,7 @@
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx}": [
-      "eslint --fix",
+      "eslint --fix --ignore-pattern 'dist/**'",
       "prettier --write"
     ]
   }

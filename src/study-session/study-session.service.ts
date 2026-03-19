@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import {
@@ -36,6 +37,80 @@ interface SessionNoteDbRow {
   updated_at: string;
 }
 
+interface SupabaseError {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}
+
+/**
+ * Map Supabase/PostgREST errors to appropriate HTTP exceptions
+ */
+function mapSupabaseError(error: SupabaseError, operation: string): void {
+  const code = error?.code;
+  const message = error?.message;
+  const details = error?.details;
+  const hint = error?.hint;
+
+  console.error(`[StudySession] ${operation} error:`, {
+    code,
+    message,
+    details,
+    hint,
+  });
+
+  // PGRST205 - Could not find the table in the schema cache
+  if (code === 'PGRST205' || message?.includes('study_sessions')) {
+    throw new InternalServerErrorException({
+      code: 'TABLE_MISSING',
+      message: 'Database table missing: study_sessions',
+      hint: 'Please run the SQL migration to create the table',
+      details: { code, hint },
+    });
+  }
+
+  // PGRST204 - Could not find the table
+  if (code === 'PGRST204') {
+    throw new InternalServerErrorException({
+      code: 'TABLE_NOT_FOUND',
+      message: `Table not found: ${message}`,
+      hint: 'Please verify the table exists in your Supabase database',
+      details: { code },
+    });
+  }
+
+  // PGREST116 - Row not found
+  if (code === 'PGREST116' || message?.includes('0 rows')) {
+    throw new NotFoundException('Study session not found');
+  }
+
+  // Foreign key violation
+  if (code === '23503') {
+    throw new BadRequestException(
+      'Invalid reference: related record does not exist',
+    );
+  }
+
+  // Check constraints
+  if (code === '23514') {
+    throw new BadRequestException(`Constraint violation: ${details}`);
+  }
+
+  // Default to bad request for known auth errors
+  if (code === '42501') {
+    throw new InternalServerErrorException(
+      'Permission denied: RLS policy violation',
+    );
+  }
+
+  throw new BadRequestException({
+    message: `Failed to ${operation.toLowerCase()} study session`,
+    error: message,
+    details,
+  });
+}
+
 @Injectable()
 export class StudySessionService {
   /**
@@ -64,14 +139,13 @@ export class StudySessionService {
       .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error) {
-      console.error('Supabase insert error:', error);
-      throw new BadRequestException(
-        `Failed to create study session: ${JSON.stringify(error)}`,
-      );
+      mapSupabaseError(error, 'create session');
     }
 
     if (!data) {
-      throw new BadRequestException('Failed to create study session');
+      throw new BadRequestException(
+        'Failed to create study session: no data returned',
+      );
     }
 
     return {
@@ -98,8 +172,7 @@ export class StudySessionService {
     };
 
     if (error) {
-      console.error('Supabase select error:', error);
-      throw new BadRequestException('Failed to fetch study sessions');
+      mapSupabaseError(error, 'fetch sessions');
     }
 
     const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
@@ -173,16 +246,19 @@ export class StudySessionService {
       .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error || !data) {
-      console.error('Supabase update error:', error);
-      throw new BadRequestException('Failed to update study session');
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'update session',
+      );
     }
 
+    // TypeScript knows data is not null after mapSupabaseError (it throws)
     return {
-      id: data.id,
-      user_id: data.user_id,
-      title: data.title,
-      subject: data.subject,
-      created_at: data.created_at,
+      id: data!.id,
+      user_id: data!.user_id,
+      title: data!.title,
+      subject: data!.subject,
+      created_at: data!.created_at,
     };
   }
 
@@ -204,8 +280,7 @@ export class StudySessionService {
       .eq('user_id', userId);
 
     if (error) {
-      console.error('Supabase delete error:', error);
-      throw new BadRequestException('Failed to delete study session');
+      mapSupabaseError(error, 'delete session');
     }
 
     return { message: 'Study session deleted successfully' };

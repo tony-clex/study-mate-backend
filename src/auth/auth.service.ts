@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { supabaseAdmin } from '../config/supabase.client';
 import { RegisterDto } from './dto/register.dto';
@@ -37,7 +41,7 @@ export class AuthService {
         lastError = error;
 
         if (isRetryable && attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1); // Exponential backoff
+          const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
           console.log(
             `Retry ${attempt}/${MAX_RETRIES} for ${operationName} after ${delay}ms...`,
           );
@@ -51,6 +55,75 @@ export class AuthService {
     }
 
     throw lastError ?? new Error('Operation failed after retries');
+  }
+
+  async signInWithGoogle() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: process.env.SUPABASE_REDIRECT_URL,
+      },
+    });
+
+    if (error) {
+      throw new BadRequestException({
+        message: 'Google sign-in failed',
+        error: error.message,
+      });
+    }
+
+    return {
+      url: data.url,
+    };
+  }
+
+  async registerWithGoogle() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: process.env.SUPABASE_REDIRECT_URL,
+      },
+    });
+
+    if (error) {
+      throw new BadRequestException({
+        message: 'Google registration failed',
+        error: error.message,
+      });
+    }
+
+    return {
+      url: data.url,
+    };
+  }
+
+  async handleOAuthCallback(code: string) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error || !data.user) {
+      throw new BadRequestException({
+        message: 'OAuth callback failed',
+        error: error?.message || 'No user data',
+      });
+    }
+
+    const payload = { sub: data.user.id, email: data.user.email };
+    const token = this.jwtService.sign(payload);
+
+    const userMeta = data.user.user_metadata as
+      | Record<string, string>
+      | undefined;
+    const userName = userMeta?.name || userMeta?.full_name;
+
+    return {
+      message: 'OAuth sign-in successful',
+      access_token: token,
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        name: userName ?? 'No name',
+      },
+    };
   }
 
   async register(registerDto: RegisterDto) {
@@ -99,7 +172,9 @@ export class AuthService {
 
       return {
         message: 'User registered successfully',
-        access_token: token,
+        access_token: loginResult.data.session?.access_token || token,
+        refresh_token: loginResult.data.session?.refresh_token,
+        expires_in: loginResult.data.session?.expires_in,
         user: {
           id: loginResult.data.user.id,
           email: loginResult.data.user.email,
@@ -143,26 +218,44 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    console.log('[Auth] Attempting login for:', email);
+    console.log('[Auth] Login attempt for email:', email);
 
     try {
-      const { data, error } = await supabaseAdmin.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const result = await this.withRetry(async () => {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (error) {
-        console.error('[Auth] Supabase error:', error);
-        throw new BadRequestException(
-          error.message || 'Invalid email or password',
+        if (error) {
+          console.error('[Auth] Supabase signIn error:', {
+            name: error.name,
+            message: error.message,
+            status: error.status,
+          });
+          throw error;
+        }
+        return data;
+      }, 'signIn');
+
+      if (!result?.user) {
+        console.error('[Auth] Login failed: no user returned');
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      if (
+        !result.user.email_confirmed_at &&
+        !result.user.confirmation_sent_at
+      ) {
+        console.warn('[Auth] Login attempt for unconfirmed email:', email);
+        throw new UnauthorizedException(
+          'Please confirm your email address before logging in',
         );
       }
 
-      if (!data?.user) {
-        throw new BadRequestException('Invalid email or password');
-      }
+      console.log('[Auth] Login successful for user:', result.user.id);
 
-      const payload = { sub: data.user.id, email: data.user.email };
+      const payload = { sub: result.user.id, email: result.user.email };
       const token = this.jwtService.sign(payload);
 
       const userMeta = data.user.user_metadata as
@@ -172,7 +265,9 @@ export class AuthService {
 
       return {
         message: 'Login successful',
-        access_token: token,
+        access_token: result.session?.access_token || token,
+        refresh_token: result.session?.refresh_token,
+        expires_in: result.session?.expires_in,
         user: {
           id: data.user.id,
           email: data.user.email,
@@ -200,15 +295,28 @@ export class AuthService {
       }
 
       if (
-        lowerMessage.includes('invalid') &&
-        lowerMessage.includes('credentials')
+        lowerMessage.includes('invalid') ||
+        lowerMessage.includes('credentials') ||
+        lowerMessage.includes('invalid login') ||
+        lowerMessage.includes('wrong password')
       ) {
-        throw new BadRequestException('Invalid email or password');
+        console.warn('[Auth] Invalid credentials for email:', email);
+        throw new UnauthorizedException('Invalid email or password');
       }
 
-      throw new BadRequestException({
+      if (lowerMessage.includes('email') && lowerMessage.includes('confirm')) {
+        throw new UnauthorizedException(
+          'Please confirm your email address before logging in',
+        );
+      }
+
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+
+      throw new UnauthorizedException({
         message: 'Login failed',
-        error: errorMessage,
+        error: 'Invalid email or password',
       });
     }
   }

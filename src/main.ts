@@ -7,7 +7,6 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS for Expo/React Native web and mobile
   app.enableCors({
     origin: [
       'http://localhost:8081',
@@ -24,10 +23,9 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Use validation pipe but with better error formatting
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: false, // Allow all fields
+      whitelist: false,
       transform: true,
       forbidNonWhitelisted: false,
     }),
