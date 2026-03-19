@@ -40,10 +40,6 @@ export interface StudySessionListResponse {
   total: number;
 }
 
-// ============================================
-// Session Notes DTOs
-// ============================================
-
 export class CreateSessionNoteDto {
   @IsUUID()
   @IsNotEmpty({ message: 'Session ID is required' })

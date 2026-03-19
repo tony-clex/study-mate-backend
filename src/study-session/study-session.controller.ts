@@ -80,14 +80,6 @@ export class StudySessionController {
     return this.studySessionService.remove(userId, id);
   }
 
-  // ============================================
-  // Session Notes Endpoints
-  // ============================================
-
-  /**
-   * Create a new note for a study session
-   * POST /api/session/:sessionId/notes
-   */
   @Post(':sessionId/notes')
   @HttpCode(HttpStatus.CREATED)
   async createNote(
@@ -102,10 +94,6 @@ export class StudySessionController {
     });
   }
 
-  /**
-   * Get all notes for a study session
-   * GET /api/session/:sessionId/notes
-   */
   @Get(':sessionId/notes')
   async findAllNotes(
     @Req() req: AuthenticatedRequest,
@@ -115,10 +103,6 @@ export class StudySessionController {
     return this.studySessionService.findAllNotes(userId, sessionId);
   }
 
-  /**
-   * Get a single note by ID
-   * GET /api/session/:sessionId/notes/:noteId
-   */
   @Get(':sessionId/notes/:noteId')
   async findNoteById(
     @Req() req: AuthenticatedRequest,
@@ -129,10 +113,6 @@ export class StudySessionController {
     return this.studySessionService.findNoteById(userId, noteId);
   }
 
-  /**
-   * Update a session note
-   * PATCH /api/session/:sessionId/notes/:noteId
-   */
   @Patch(':sessionId/notes/:noteId')
   async updateNote(
     @Req() req: AuthenticatedRequest,
@@ -144,10 +124,6 @@ export class StudySessionController {
     return this.studySessionService.updateNote(userId, noteId, updateDto);
   }
 
-  /**
-   * Delete a session note
-   * DELETE /api/session/:sessionId/notes/:noteId
-   */
   @Delete(':sessionId/notes/:noteId')
   @HttpCode(HttpStatus.OK)
   async removeNote(

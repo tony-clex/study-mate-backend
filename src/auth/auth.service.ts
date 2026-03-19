@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { supabase } from '../config/supabase.client';
+import { supabaseAdmin } from '../config/supabase.client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -65,7 +65,7 @@ export class AuthService {
     try {
       // Sign up with retry logic
       await this.withRetry(async () => {
-        const result = await supabase.auth.signUp({
+        const result = await supabaseAdmin.auth.signUp({
           email,
           password,
           options: { data: { name } },
@@ -79,7 +79,7 @@ export class AuthService {
 
       // Sign in with retry logic
       const loginResult = await this.withRetry(async () => {
-        const result = await supabase.auth.signInWithPassword({
+        const result = await supabaseAdmin.auth.signInWithPassword({
           email,
           password,
         });
@@ -153,28 +153,30 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
+    console.log('[Auth] Attempting login for:', email);
+
     try {
-      // Sign in with retry logic
-      const result = await this.withRetry(async () => {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+      // Sign in directly without retry logic for debugging
+      const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-        if (error) {
-          throw error;
-        }
-        return data;
-      }, 'signIn');
+      if (error) {
+        console.error('[Auth] Supabase error:', error);
+        throw new BadRequestException(
+          error.message || 'Invalid email or password',
+        );
+      }
 
-      if (!result?.user) {
+      if (!data?.user) {
         throw new BadRequestException('Invalid email or password');
       }
 
-      const payload = { sub: result.user.id, email: result.user.email };
+      const payload = { sub: data.user.id, email: data.user.email };
       const token = this.jwtService.sign(payload);
 
-      const userMeta = result.user.user_metadata as
+      const userMeta = data.user.user_metadata as
         | Record<string, string>
         | undefined;
       const userName = userMeta?.name;
@@ -183,8 +185,8 @@ export class AuthService {
         message: 'Login successful',
         access_token: token,
         user: {
-          id: result.user.id,
-          email: result.user.email,
+          id: data.user.id,
+          email: data.user.email,
           name: userName ?? 'No name',
         },
       };
