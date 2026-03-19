@@ -4,9 +4,10 @@ import { AppService } from './app.service';
 
 import { AuthModule } from './auth/auth.module';
 import { StudySessionModule } from './study-session/study-session.module';
+import { FileUploadModule } from './file-upload/file-upload.module';
 
 @Module({
-  imports: [AuthModule, StudySessionModule],
+  imports: [AuthModule, StudySessionModule, FileUploadModule],
   controllers: [AppController],
   providers: [AppService],
 })
