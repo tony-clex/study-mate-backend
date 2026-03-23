@@ -31,10 +31,6 @@ interface AuthenticatedRequest {
 export class StudySessionController {
   constructor(private readonly studySessionService: StudySessionService) {}
 
-  /**
-   * Create a new study session
-   * POST /api/session/create
-   */
   @Post('create')
   @HttpCode(HttpStatus.CREATED)
   async create(
