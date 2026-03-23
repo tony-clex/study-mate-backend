@@ -4,7 +4,6 @@ import { supabaseAdmin } from '../config/supabase.client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
-// Retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -12,9 +11,6 @@ const RETRY_DELAY_MS = 1000;
 export class AuthService {
   constructor(private jwtService: JwtService) {}
 
-  /**
-   * Execute a function with retry logic for network errors
-   */
   private async withRetry<T>(
     operation: () => Promise<T>,
     operationName: string = 'operation',
@@ -28,7 +24,6 @@ export class AuthService {
         const error = err instanceof Error ? err : new Error(String(err));
         const errorMessage = error.message.toLowerCase();
 
-        // Check if this is a retryable error (network/connection related)
         const isRetryable =
           errorMessage.includes('fetch failed') ||
           errorMessage.includes('network') ||
@@ -51,7 +46,6 @@ export class AuthService {
           continue;
         }
 
-        // Not retryable or max retries reached
         throw error;
       }
     }
@@ -63,7 +57,6 @@ export class AuthService {
     const { name, email, password } = registerDto;
 
     try {
-      // Sign up with retry logic
       await this.withRetry(async () => {
         const result = await supabaseAdmin.auth.signUp({
           email,
@@ -77,7 +70,6 @@ export class AuthService {
         return result;
       }, 'signUp');
 
-      // Sign in with retry logic
       const loginResult = await this.withRetry(async () => {
         const result = await supabaseAdmin.auth.signInWithPassword({
           email,
@@ -118,7 +110,6 @@ export class AuthService {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       const lowerMessage = errorMessage.toLowerCase();
 
-      // Detect network/connection errors
       if (
         lowerMessage.includes('fetch failed') ||
         lowerMessage.includes('network') ||
@@ -133,7 +124,6 @@ export class AuthService {
         });
       }
 
-      // Handle specific Supabase errors
       if (lowerMessage.includes('already registered')) {
         throw new BadRequestException('Email already registered');
       }
@@ -156,7 +146,6 @@ export class AuthService {
     console.log('[Auth] Attempting login for:', email);
 
     try {
-      // Sign in directly without retry logic for debugging
       const { data, error } = await supabaseAdmin.auth.signInWithPassword({
         email,
         password,
@@ -196,7 +185,6 @@ export class AuthService {
 
       console.error('[Auth] Login error:', err);
 
-      // Detect network/connection errors
       if (
         lowerMessage.includes('fetch failed') ||
         lowerMessage.includes('network') ||
@@ -211,7 +199,6 @@ export class AuthService {
         });
       }
 
-      // Handle invalid credentials
       if (
         lowerMessage.includes('invalid') &&
         lowerMessage.includes('credentials')
