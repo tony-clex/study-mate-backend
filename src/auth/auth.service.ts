@@ -37,7 +37,7 @@ export class AuthService {
         lastError = error;
 
         if (isRetryable && attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1); // Exponential backoff
+          const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
           console.log(
             `Retry ${attempt}/${MAX_RETRIES} for ${operationName} after ${delay}ms...`,
           );

@@ -18,6 +18,7 @@ import {
   UpdateStudySessionDto,
   CreateSessionNoteDto,
   UpdateSessionNoteDto,
+  CreateSessionFileDto,
 } from './dto/study-session.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -129,5 +130,40 @@ export class StudySessionController {
   ) {
     const userId = req.user.sub;
     return this.studySessionService.removeNote(userId, noteId);
+  }
+
+  // File endpoints for session file management
+  @Get(':sessionId/files')
+  async findAllFiles(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.findAllFiles(userId, sessionId);
+  }
+
+  @Post(':sessionId/files')
+  @HttpCode(HttpStatus.CREATED)
+  async createFile(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Body() createDto: CreateSessionFileDto,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.createFile(userId, {
+      ...createDto,
+      session_id: sessionId,
+    });
+  }
+
+  @Delete(':sessionId/files/:fileId')
+  @HttpCode(HttpStatus.OK)
+  async removeFile(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+  ) {
+    const userId = req.user.sub;
+    return this.studySessionService.removeFile(userId, fileId);
   }
 }
