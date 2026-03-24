@@ -20,6 +20,8 @@ export class FileUploadService {
     'image/png',
     'image/gif',
     'image/webp',
+    'image/heic',
+    'image/heif',
     'application/pdf',
     'text/plain',
     'text/markdown',
@@ -27,14 +29,8 @@ export class FileUploadService {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ];
 
-  private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
+  private readonly maxFileSize = 10 * 1024 * 1024;
 
-  /**
-   * Upload a file to Supabase Storage
-   * @param userId - The authenticated user's ID
-   * @param file - The uploaded file buffer and metadata
-   * @param folder - Optional folder name within the bucket
-   */
   async uploadFile(
     userId: string,
     file: {
@@ -76,7 +72,6 @@ export class FileUploadService {
         );
       }
 
-      // Get public URL
       const { data: urlData } = supabaseAdmin.storage
         .from(this.bucketName)
         .getPublicUrl(fileName);
@@ -96,13 +91,8 @@ export class FileUploadService {
     }
   }
 
-  /**
-   * Delete a file from Supabase Storage
-   * @param fileUrl - The full URL of the file to delete
-   */
   async deleteFile(fileUrl: string): Promise<void> {
     try {
-      // Extract the file path from the URL
       const urlParts = fileUrl.split('/storage/v1/object/public/');
       if (urlParts.length < 2) {
         throw new BadRequestException('Invalid file URL');
@@ -127,11 +117,6 @@ export class FileUploadService {
     }
   }
 
-  /**
-   * Get a signed URL for private file access
-   * @param fileUrl - The full URL of the file
-   * @param expiresIn - URL expiration time in seconds (default 3600 = 1 hour)
-   */
   async getSignedUrl(
     fileUrl: string,
     expiresIn: number = 3600,

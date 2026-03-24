@@ -19,13 +19,11 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-// Create client with anon key (for client-side use)
 export const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
 ) as SupabaseClient;
 
-// Create admin client with service role key (for server-side use - bypasses RLS)
 export const supabaseAdmin = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
@@ -36,5 +34,3 @@ export const supabaseAdmin = createClient(
     },
   },
 ) as SupabaseClient;
-
-console.log(' Supabase clients initialized');
