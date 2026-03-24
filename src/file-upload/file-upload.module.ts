@@ -3,11 +3,12 @@ import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { FileUploadController } from './file-upload.controller';
 import { FileUploadService } from './file-upload.service';
-import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     MulterModule.register({
       storage: memoryStorage(),
       limits: {
@@ -16,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
     }),
   ],
   controllers: [FileUploadController],
-  providers: [FileUploadService, JwtService, JwtAuthGuard],
+  providers: [FileUploadService, JwtAuthGuard],
   exports: [FileUploadService],
 })
 export class FileUploadModule {}
