@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { supabaseAdmin } from '../config/supabase.client';
+import { supabaseAdmin } from '../config/supabase.client'; // This is your defined client
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -57,8 +57,9 @@ export class AuthService {
     throw lastError ?? new Error('Operation failed after retries');
   }
 
+  // FIXED: Changed 'supabase' to 'supabaseAdmin'
   async signInWithGoogle() {
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: process.env.SUPABASE_REDIRECT_URL,
@@ -77,8 +78,9 @@ export class AuthService {
     };
   }
 
+  // FIXED: Changed 'supabase' to 'supabaseAdmin'
   async registerWithGoogle() {
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: process.env.SUPABASE_REDIRECT_URL,
@@ -97,8 +99,10 @@ export class AuthService {
     };
   }
 
+  // FIXED: Changed 'supabase' to 'supabaseAdmin'
   async handleOAuthCallback(code: string) {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } =
+      await supabaseAdmin.auth.exchangeCodeForSession(code);
 
     if (error || !data.user) {
       throw new BadRequestException({
@@ -221,8 +225,9 @@ export class AuthService {
     console.log('[Auth] Login attempt for email:', email);
 
     try {
+      // FIXED: using supabaseAdmin and ensuring result is correctly captured
       const result = await this.withRetry(async () => {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabaseAdmin.auth.signInWithPassword({
           email,
           password,
         });
@@ -235,7 +240,7 @@ export class AuthService {
           });
           throw error;
         }
-        return data;
+        return data; // returns { user, session }
       }, 'signIn');
 
       if (!result?.user) {
@@ -258,7 +263,8 @@ export class AuthService {
       const payload = { sub: result.user.id, email: result.user.email };
       const token = this.jwtService.sign(payload);
 
-      const userMeta = data.user.user_metadata as
+      // FIXED: Changed 'data.user' to 'result.user' because 'data' was only defined inside the withRetry callback
+      const userMeta = result.user.user_metadata as
         | Record<string, string>
         | undefined;
       const userName = userMeta?.name;
@@ -269,12 +275,13 @@ export class AuthService {
         refresh_token: result.session?.refresh_token,
         expires_in: result.session?.expires_in,
         user: {
-          id: data.user.id,
-          email: data.user.email,
+          id: result.user.id,
+          email: result.user.email,
           name: userName ?? 'No name',
         },
       };
     } catch (err) {
+      // Catch block remains the same
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       const lowerMessage = errorMessage.toLowerCase();
 
@@ -319,5 +326,40 @@ export class AuthService {
         error: 'Invalid email or password',
       });
     }
+  }
+
+  // Add this to the bottom of your AuthService class
+  async updateAccount(userId: string, newEmail?: string, newPassword?: string) {
+    if (!userId) throw new BadRequestException('UserId is required');
+
+    const attributes: Record<string, string> = {};
+    if (newEmail) {
+      attributes.email = newEmail;
+    }
+    if (newPassword) {
+      attributes.password = newPassword;
+    }
+
+    // We use the admin client because updating user attributes
+    // often requires higher permissions in Supabase
+    const response = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
+      attributes,
+    );
+
+    const error = response.error as Error | null;
+    const data = response.data;
+
+    if (error) {
+      console.error('[Auth] Account update error:', error.message);
+      throw new BadRequestException(`Account update failed: ${error.message}`);
+    }
+
+    return {
+      message: newEmail
+        ? 'Confirmation email sent to both old and new addresses. Please confirm to finish.'
+        : 'Password updated successfully',
+      user: data?.user,
+    };
   }
 }
