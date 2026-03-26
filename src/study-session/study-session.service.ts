@@ -51,6 +51,24 @@ interface SessionFileDbRow {
   created_at: string;
 }
 
+function mapSupabaseError(error: unknown, operation: string): never {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const errMsg = (error as { message: string }).message.toLowerCase();
+    if (errMsg.includes('row') && errMsg.includes('not found')) {
+      throw new NotFoundException(`${operation} failed: resource not found`);
+    }
+    if (errMsg.includes('duplicate') || errMsg.includes('unique')) {
+      throw new BadRequestException(`${operation} failed: duplicate entry`);
+    }
+    if (errMsg.includes('violates') || errMsg.includes('constraint')) {
+      throw new BadRequestException(
+        `${operation} failed: constraint violation`,
+      );
+    }
+  }
+  throw new InternalServerErrorException(`${operation} failed`);
+}
+
 @Injectable()
 export class StudySessionService {
   async create(
@@ -174,11 +192,11 @@ export class StudySessionService {
 
     // TypeScript knows data is not null after mapSupabaseError (it throws)
     return {
-      id: data!.id,
-      user_id: data!.user_id,
-      title: data!.title,
-      subject: data!.subject,
-      created_at: data!.created_at,
+      id: data.id,
+      user_id: data.user_id,
+      title: data.title,
+      subject: data.subject,
+      created_at: data.created_at,
     };
   }
 
