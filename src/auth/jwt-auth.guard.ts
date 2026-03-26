@@ -4,7 +4,7 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { supabaseAdmin } from '../config/supabase.client';
 
 interface JwtPayload {
   sub: string;
@@ -21,8 +21,6 @@ interface AuthenticatedRequest {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
-
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
@@ -32,6 +30,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authHeader.substring(7);
+
+    if (!token || token.length === 0) {
+      throw new UnauthorizedException('Empty token');
+    }
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);

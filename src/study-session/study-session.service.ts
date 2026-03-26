@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import {
@@ -73,14 +74,13 @@ export class StudySessionService {
       .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error) {
-      console.error('Supabase insert error:', error);
-      throw new BadRequestException(
-        `Failed to create study session: ${JSON.stringify(error)}`,
-      );
+      mapSupabaseError(error, 'create session');
     }
 
     if (!data) {
-      throw new BadRequestException('Failed to create study session');
+      throw new BadRequestException(
+        'Failed to create study session: no data returned',
+      );
     }
 
     return {
@@ -103,8 +103,7 @@ export class StudySessionService {
     };
 
     if (error) {
-      console.error('Supabase select error:', error);
-      throw new BadRequestException('Failed to fetch study sessions');
+      mapSupabaseError(error, 'fetch sessions');
     }
 
     const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
@@ -167,16 +166,19 @@ export class StudySessionService {
       .single()) as { data: StudySessionDbRow | null; error: null };
 
     if (error || !data) {
-      console.error('Supabase update error:', error);
-      throw new BadRequestException('Failed to update study session');
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'update session',
+      );
     }
 
+    // TypeScript knows data is not null after mapSupabaseError (it throws)
     return {
-      id: data.id,
-      user_id: data.user_id,
-      title: data.title,
-      subject: data.subject,
-      created_at: data.created_at,
+      id: data!.id,
+      user_id: data!.user_id,
+      title: data!.title,
+      subject: data!.subject,
+      created_at: data!.created_at,
     };
   }
 
@@ -193,8 +195,7 @@ export class StudySessionService {
       .eq('user_id', userId);
 
     if (error) {
-      console.error('Supabase delete error:', error);
-      throw new BadRequestException('Failed to delete study session');
+      mapSupabaseError(error, 'delete session');
     }
 
     return { message: 'Study session deleted successfully' };
