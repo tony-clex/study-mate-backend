@@ -30,7 +30,6 @@ async function bootstrap() {
 
   console.log(`🚀 Server is live on: http://192.168.1.172:3000`);
 }
-
 bootstrap().catch((err) => {
   console.error('Failed to start application:', err);
   process.exit(1);
