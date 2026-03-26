@@ -14,6 +14,9 @@ import {
   UpdateSessionNoteDto,
   SessionNoteResponse,
   SessionNoteListResponse,
+  CreateSessionFileDto,
+  SessionFileResponse,
+  SessionFileListResponse,
 } from './dto/study-session.dto';
 
 interface StudySessionDbRow {
@@ -37,87 +40,19 @@ interface SessionNoteDbRow {
   updated_at: string;
 }
 
-interface SupabaseError {
-  code?: string;
-  message?: string;
-  details?: string;
-  hint?: string;
-}
-
-/**
- * Map Supabase/PostgREST errors to appropriate HTTP exceptions
- */
-function mapSupabaseError(error: SupabaseError, operation: string): void {
-  const code = error?.code;
-  const message = error?.message;
-  const details = error?.details;
-  const hint = error?.hint;
-
-  console.error(`[StudySession] ${operation} error:`, {
-    code,
-    message,
-    details,
-    hint,
-  });
-
-  // PGRST205 - Could not find the table in the schema cache
-  if (code === 'PGRST205' || message?.includes('study_sessions')) {
-    throw new InternalServerErrorException({
-      code: 'TABLE_MISSING',
-      message: 'Database table missing: study_sessions',
-      hint: 'Please run the SQL migration to create the table',
-      details: { code, hint },
-    });
-  }
-
-  // PGRST204 - Could not find the table
-  if (code === 'PGRST204') {
-    throw new InternalServerErrorException({
-      code: 'TABLE_NOT_FOUND',
-      message: `Table not found: ${message}`,
-      hint: 'Please verify the table exists in your Supabase database',
-      details: { code },
-    });
-  }
-
-  // PGREST116 - Row not found
-  if (code === 'PGREST116' || message?.includes('0 rows')) {
-    throw new NotFoundException('Study session not found');
-  }
-
-  // Foreign key violation
-  if (code === '23503') {
-    throw new BadRequestException(
-      'Invalid reference: related record does not exist',
-    );
-  }
-
-  // Check constraints
-  if (code === '23514') {
-    throw new BadRequestException(`Constraint violation: ${details}`);
-  }
-
-  // Default to bad request for known auth errors
-  if (code === '42501') {
-    throw new InternalServerErrorException(
-      'Permission denied: RLS policy violation',
-    );
-  }
-
-  throw new BadRequestException({
-    message: `Failed to ${operation.toLowerCase()} study session`,
-    error: message,
-    details,
-  });
+interface SessionFileDbRow {
+  id: string;
+  session_id: string;
+  user_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
 }
 
 @Injectable()
 export class StudySessionService {
-  /**
-   * Create a new study session
-   * @param userId - The authenticated user's ID from JWT
-   * @param createDto - The session data
-   */
   async create(
     userId: string,
     createDto: CreateStudySessionDto,
@@ -157,10 +92,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Get all study sessions for the authenticated user
-   * @param userId
-   */
   async findAll(userId: string): Promise<StudySessionListResponse> {
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
@@ -189,11 +120,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Get a single study session by ID
-   * @param userId - The authenticated user's ID from JWT
-   * @param sessionId - The session ID to find
-   */
   async findOne(
     userId: string,
     sessionId: string,
@@ -218,12 +144,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Update a study session
-   * @param userId - The authenticated user's ID from JWT
-   * @param sessionId - The session ID to update
-   * @param updateDto - The updated session data
-   */
   async update(
     userId: string,
     sessionId: string,
@@ -262,15 +182,10 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * @param userId - The authenticated user's ID from JWT
-   * @param sessionId - The session ID to delete
-   */
   async remove(
     userId: string,
     sessionId: string,
   ): Promise<{ message: string }> {
-    // First check if session exists and belongs to user
     await this.findOne(userId, sessionId);
 
     const { error } = await supabaseAdmin
@@ -286,11 +201,6 @@ export class StudySessionService {
     return { message: 'Study session deleted successfully' };
   }
 
-  /**
-   * Create a new note for a study session
-   * @param userId - The authenticated user's ID from JWT
-   * @param createDto - The note data
-   */
   async createNote(
     userId: string,
     createDto: CreateSessionNoteDto,
@@ -298,7 +208,6 @@ export class StudySessionService {
     const { session_id, title, content, file_url, file_name, file_type } =
       createDto;
 
-    // Verify the session exists and belongs to the user
     await this.findOne(userId, session_id);
 
     const { data, error } = (await supabaseAdmin
@@ -338,11 +247,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Get all notes for a specific study session
-   * @param userId - The authenticated user's ID from JWT
-   * @param sessionId - The session ID
-   */
   async findAllNotes(
     userId: string,
     sessionId: string,
@@ -383,11 +287,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Get a single note by ID
-   * @param userId - The authenticated user's ID from JWT
-   * @param noteId - The note ID to find
-   */
   async findNoteById(
     userId: string,
     noteId: string,
@@ -417,12 +316,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Update a session note
-   * @param userId - The authenticated user's ID from JWT
-   * @param noteId - The note ID to update
-   * @param updateDto - The updated note data
-   */
   async updateNote(
     userId: string,
     noteId: string,
@@ -477,11 +370,6 @@ export class StudySessionService {
     };
   }
 
-  /**
-   * Delete a session note
-   * @param userId - The authenticated user's ID from JWT
-   * @param noteId - The note ID to delete
-   */
   async removeNote(
     userId: string,
     noteId: string,
@@ -500,5 +388,118 @@ export class StudySessionService {
     }
 
     return { message: 'Session note deleted successfully' };
+  }
+
+  // File management methods
+  async createFile(
+    userId: string,
+    createDto: CreateSessionFileDto,
+  ): Promise<SessionFileResponse> {
+    const { session_id, file_url, file_name, file_type, file_size } = createDto;
+
+    // Verify session exists
+    await this.findOne(userId, session_id);
+
+    const { data, error } = (await supabaseAdmin
+      .from('session_files')
+      .insert({
+        session_id,
+        user_id: userId,
+        file_url,
+        file_name,
+        file_type,
+        file_size,
+      })
+      .select()
+      .single()) as { data: SessionFileDbRow | null; error: null };
+
+    if (error) {
+      console.error('Supabase insert file error:', error);
+      throw new BadRequestException('Failed to link file to session');
+    }
+
+    if (!data) {
+      throw new BadRequestException('Failed to link file to session');
+    }
+
+    return {
+      id: data.id,
+      session_id: data.session_id,
+      user_id: data.user_id,
+      file_name: data.file_name,
+      file_url: data.file_url,
+      file_type: data.file_type,
+      file_size: data.file_size,
+      created_at: data.created_at,
+    };
+  }
+
+  async findAllFiles(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionFileListResponse> {
+    // Verify session exists
+    await this.findOne(userId, sessionId);
+
+    const { data, error } = (await supabaseAdmin
+      .from('session_files')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })) as {
+      data: SessionFileDbRow[] | null;
+      error: null;
+    };
+
+    if (error) {
+      console.error('Supabase select files error:', error);
+      throw new BadRequestException('Failed to fetch session files');
+    }
+
+    const files: SessionFileResponse[] = (data ?? []).map((file) => ({
+      id: file.id,
+      session_id: file.session_id,
+      user_id: file.user_id,
+      file_name: file.file_name,
+      file_url: file.file_url,
+      file_type: file.file_type,
+      file_size: file.file_size,
+      created_at: file.created_at,
+    }));
+
+    return {
+      files,
+      total: files.length,
+    };
+  }
+
+  async removeFile(
+    userId: string,
+    fileId: string,
+  ): Promise<{ message: string }> {
+    // Verify file exists and belongs to user
+    const { data: existingFile, error: findError } = (await supabaseAdmin
+      .from('session_files')
+      .select('*')
+      .eq('id', fileId)
+      .eq('user_id', userId)
+      .single()) as { data: SessionFileDbRow | null; error: null };
+
+    if (findError || !existingFile) {
+      throw new NotFoundException('Session file not found');
+    }
+
+    const { error } = await supabaseAdmin
+      .from('session_files')
+      .delete()
+      .eq('id', fileId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Supabase delete file error:', error);
+      throw new BadRequestException('Failed to remove file from session');
+    }
+
+    return { message: 'File removed from session successfully' };
   }
 }

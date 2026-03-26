@@ -4,6 +4,7 @@ import {
   IsUUID,
   IsOptional,
   IsUrl,
+  IsNumber,
 } from 'class-validator';
 
 export class CreateStudySessionDto {
@@ -103,5 +104,44 @@ export interface SessionNoteResponse {
 
 export interface SessionNoteListResponse {
   notes: SessionNoteResponse[];
+  total: number;
+}
+
+// Session File DTOs
+export class CreateSessionFileDto {
+  @IsUUID()
+  @IsNotEmpty({ message: 'Session ID is required' })
+  session_id: string;
+
+  @IsUrl()
+  @IsNotEmpty({ message: 'File URL is required' })
+  file_url: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'File name is required' })
+  file_name: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'File type is required' })
+  file_type: string;
+
+  @IsNumber()
+  @IsNotEmpty({ message: 'File size is required' })
+  file_size: number;
+}
+
+export interface SessionFileResponse {
+  id: string;
+  session_id: string;
+  user_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+export interface SessionFileListResponse {
+  files: SessionFileResponse[];
   total: number;
 }

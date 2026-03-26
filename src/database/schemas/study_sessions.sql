@@ -78,3 +78,33 @@ USING (auth.uid() = user_id);
 CREATE POLICY "Users can only update their own notes" 
 ON public.session_notes FOR UPDATE 
 USING (auth.uid() = user_id);
+
+-- Session Files table for storing uploaded files linked to sessions
+CREATE TABLE IF NOT EXISTS session_files (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id UUID NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    file_type VARCHAR(100) NOT NULL,
+    file_size BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
+
+CREATE INDEX IF NOT EXISTS idx_session_files_user_id ON session_files(user_id);
+
+ALTER TABLE session_files ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can only view their own files" 
+ON session_files FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can only insert their own files" 
+ON session_files FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can only delete their own files" 
+ON session_files FOR DELETE 
+USING (auth.uid() = user_id);
