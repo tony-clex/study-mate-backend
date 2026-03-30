@@ -504,8 +504,6 @@
 //   }
 // }
 
-
-
 import {
   Injectable,
   NotFoundException,
@@ -603,7 +601,9 @@ export class StudySessionService {
 
     if (error) mapSupabaseError(error, 'fetch sessions');
 
-    const sessions: StudySessionResponse[] = ((data as StudySessionDbRow[]) ?? []).map((session) => ({
+    const sessions: StudySessionResponse[] = (
+      (data as StudySessionDbRow[]) ?? []
+    ).map((session) => ({
       id: session.id,
       user_id: session.user_id,
       title: session.title,
@@ -687,12 +687,12 @@ export class StudySessionService {
     return { message: 'Study session deleted successfully' };
   }
 
-  // Note methods
   async createNote(
     userId: string,
     createDto: CreateSessionNoteDto,
   ): Promise<SessionNoteResponse> {
-    const { session_id, title, content, file_url, file_name, file_type } = createDto;
+    const { session_id, title, content, file_url, file_name, file_type } =
+      createDto;
     await this.findOne(userId, session_id);
 
     const { data, error } = await supabaseAdmin
@@ -709,7 +709,8 @@ export class StudySessionService {
       .select()
       .single();
 
-    if (error || !data) throw new BadRequestException('Failed to create session note');
+    if (error || !data)
+      throw new BadRequestException('Failed to create session note');
 
     const result = data as SessionNoteDbRow;
     return {
@@ -741,7 +742,9 @@ export class StudySessionService {
 
     if (error) throw new BadRequestException('Failed to fetch session notes');
 
-    const notes: SessionNoteResponse[] = ((data as SessionNoteDbRow[]) ?? []).map((note) => ({
+    const notes: SessionNoteResponse[] = (
+      (data as SessionNoteDbRow[]) ?? []
+    ).map((note) => ({
       id: note.id,
       session_id: note.session_id,
       user_id: note.user_id,
@@ -793,11 +796,16 @@ export class StudySessionService {
     await this.findNoteById(userId, noteId);
 
     const updateData: Record<string, unknown> = {};
-    if (updateDto.title !== undefined) updateData.title = updateDto.title.trim();
-    if (updateDto.content !== undefined) updateData.content = updateDto.content?.trim() || null;
-    if (updateDto.file_url !== undefined) updateData.file_url = updateDto.file_url || null;
-    if (updateDto.file_name !== undefined) updateData.file_name = updateDto.file_name || null;
-    if (updateDto.file_type !== undefined) updateData.file_type = updateDto.file_type || null;
+    if (updateDto.title !== undefined)
+      updateData.title = updateDto.title.trim();
+    if (updateDto.content !== undefined)
+      updateData.content = updateDto.content?.trim() || null;
+    if (updateDto.file_url !== undefined)
+      updateData.file_url = updateDto.file_url || null;
+    if (updateDto.file_name !== undefined)
+      updateData.file_name = updateDto.file_name || null;
+    if (updateDto.file_type !== undefined)
+      updateData.file_type = updateDto.file_type || null;
 
     updateData.updated_at = new Date().toISOString();
 
@@ -809,7 +817,8 @@ export class StudySessionService {
       .select()
       .single();
 
-    if (error || !data) throw new BadRequestException('Failed to update session note');
+    if (error || !data)
+      throw new BadRequestException('Failed to update session note');
 
     const result = data as SessionNoteDbRow;
     return {
@@ -841,7 +850,6 @@ export class StudySessionService {
     return { message: 'Session note deleted successfully' };
   }
 
-  // File management
   async createFile(
     userId: string,
     createDto: CreateSessionFileDto,
@@ -851,7 +859,14 @@ export class StudySessionService {
 
     const { data, error } = await supabaseAdmin
       .from('session_files')
-      .insert({ session_id, user_id: userId, file_url, file_name, file_type, file_size })
+      .insert({
+        session_id,
+        user_id: userId,
+        file_url,
+        file_name,
+        file_type,
+        file_size,
+      })
       .select()
       .single();
 
@@ -885,7 +900,9 @@ export class StudySessionService {
 
     if (error) throw new BadRequestException('Failed to fetch files');
 
-    const files: SessionFileResponse[] = ((data as SessionFileDbRow[]) ?? []).map((file) => ({
+    const files: SessionFileResponse[] = (
+      (data as SessionFileDbRow[]) ?? []
+    ).map((file) => ({
       id: file.id,
       session_id: file.session_id,
       user_id: file.user_id,
@@ -910,7 +927,8 @@ export class StudySessionService {
       .eq('user_id', userId)
       .single();
 
-    if (findError || !data) throw new NotFoundException('Session file not found');
+    if (findError || !data)
+      throw new NotFoundException('Session file not found');
 
     const { error } = await supabaseAdmin
       .from('session_files')
@@ -926,13 +944,14 @@ export class StudySessionService {
 /**
  * Helper to map Supabase errors to NestJS Exceptions
  */
-function mapSupabaseError(error: any, context: string): never {
-  console.error(`Supabase error [${context}]:`, error);
-  const message = error?.message || 'Database operation failed';
-  
-  if (error?.code === 'PGRST116') {
+function mapSupabaseError(error: unknown, context: string): never {
+  const err = error as { message?: string; code?: string };
+  console.error(`Supabase error [${context}]:`, err);
+  const message = err?.message || 'Database operation failed';
+
+  if (err?.code === 'PGRST116') {
     throw new NotFoundException(`${context} not found`);
   }
-  
+
   throw new InternalServerErrorException(`${context} failed: ${message}`);
 }
