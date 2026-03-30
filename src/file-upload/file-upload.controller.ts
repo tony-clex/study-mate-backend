@@ -80,6 +80,53 @@ export class FileUploadController {
     }
   }
 
+  @Post('direct')
+  @HttpCode(HttpStatus.CREATED)
+  async uploadFileDirect(
+    @Req() req: AuthenticatedRequest,
+    @Body()
+    body: {
+      file_data: string;
+      file_name: string;
+      file_type: string;
+      folder?: string;
+    },
+  ) {
+    if (!body.file_data || !body.file_name) {
+      throw new BadRequestException('File data and name are required');
+    }
+
+    const userId = req.user.sub;
+    const folder = body.folder || 'uploads';
+
+    try {
+      // Decode base64 file data
+      const buffer = Buffer.from(body.file_data, 'base64');
+
+      // Upload to storage
+      const result = await this.fileUploadService.uploadFile(
+        userId,
+        {
+          originalname: body.file_name,
+          mimetype: body.file_type || 'application/octet-stream',
+          size: buffer.length,
+          buffer: buffer,
+        },
+        folder,
+      );
+
+      return {
+        message: 'File uploaded successfully',
+        ...result,
+      };
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw new BadRequestException(
+        `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
   @Delete()
   @HttpCode(HttpStatus.OK)
   async deleteFile(@Body('file_url') fileUrl: string) {
