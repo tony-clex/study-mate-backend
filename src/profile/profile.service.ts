@@ -23,23 +23,38 @@ export class UpdateProfileDto {
 @Injectable()
 export class ProfileService {
   private readonly logger = new Logger(ProfileService.name);
+
   private supabase = createClient(
     process.env.SUPABASE_URL || '',
     process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   );
 
   async getProfile(userId: string): Promise<Profile> {
-    const response = await this.supabase
+    // FIXED: Added <Profile> generic to select
+    const { data, error } = await this.supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .returns<Profile[]>() // Explicitly tell TS we expect an array of Profiles
+      .maybeSingle();
 
-    const data = response.data as Profile | null;
-    const error = response.error as Error | null;
+    if (error) {
+      this.logger.error(`Get Profile Error: ${error.message}`);
+      throw new BadRequestException('Database error fetching profile');
+    }
 
-    if (error) throw new BadRequestException('Profile not found');
-    return data as Profile;
+    if (!data) {
+      return {
+        id: userId,
+        full_name: 'Full Name',
+        bio: 'No bio added yet.',
+        avatar_url: '',
+        learning_goal: '',
+        study_level: '',
+      };
+    }
+
+    return data;
   }
 
   async updateProfile(
@@ -47,82 +62,76 @@ export class ProfileService {
     dto: UpdateProfileDto,
     file?: Express.Multer.File,
   ): Promise<Profile> {
-    if (!userId) {
-      throw new BadRequestException('User ID is required');
-    }
+    if (!userId) throw new BadRequestException('User ID is required');
 
     let avatarUrl: string | undefined;
 
     if (file) {
       const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
       if (!allowedTypes.includes(file.mimetype)) {
-        throw new BadRequestException(
-          'Invalid file type. Only JPEG and PNG are allowed.',
-        );
+        throw new BadRequestException('Invalid file type. Use JPEG or PNG.');
       }
 
-      if (file.size > 2 * 1024 * 1024) {
-        throw new BadRequestException('File size must be less than 2MB');
-      }
+      const fileExt = file.mimetype.split('/')[1] || 'jpg';
+      const fileName = `${userId}/${Date.now()}.${fileExt}`;
 
-      this.logger.log(
-        `Uploading file for user ${userId}: ${file.originalname}`,
-      );
-
-      const fileExt = file.originalname?.split('.').pop() || 'jpg';
-      const fileName = `${userId}-${Date.now()}.${fileExt}`;
-      const filePath = fileName;
+      this.logger.log(`Uploading avatar: ${fileName}`);
 
       const { error: uploadError } = await this.supabase.storage
         .from('avatars')
-        .upload(filePath, file.buffer, {
+        .upload(fileName, file.buffer, {
           contentType: file.mimetype,
           upsert: true,
         });
 
       if (uploadError) {
-        this.logger.error(`Supabase Upload Error: ${uploadError.message}`);
-        throw new BadRequestException(
-          `Image upload failed: ${uploadError.message}`,
-        );
+        this.logger.error(`Storage Error: ${uploadError.message}`);
+      } else {
+        // FIXED: Destructure properly to avoid 'any' access
+        const { data: publicUrlData } = this.supabase.storage
+          .from('avatars')
+          .getPublicUrl(fileName);
+
+        avatarUrl = publicUrlData?.publicUrl;
       }
-
-      const { data: urlData } = this.supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      avatarUrl = urlData.publicUrl;
     }
 
-    // Update the Database
-    const updatePayload: Record<string, unknown> = {
+    // FIXED: Build the database payload using the Profile interface instead of 'any'
+    const updatePayload: Partial<Profile> & { id: string } = {
       id: userId,
+      updated_at: new Date().toISOString(),
       ...dto,
-      updated_at: new Date(),
     };
 
     if (avatarUrl) {
       updatePayload.avatar_url = avatarUrl;
     }
 
-    this.logger.log(`Updating profile with: ${JSON.stringify(updatePayload)}`);
-
-    const dbResponse = await this.supabase
+    // FIXED: Added returns<Profile>() to ensure data isn't 'any'
+    const { data: updatedProfile, error: dbError } = await this.supabase
       .from('profiles')
-      .upsert(updatePayload)
+      .upsert(updatePayload, { onConflict: 'id' })
       .select()
+      .returns<Profile>()
       .single();
 
-    const updatedProfile = dbResponse.data as Profile | null;
-    const dbError = dbResponse.error as Error | null;
-
     if (dbError) {
-      this.logger.error(`Database Error: ${dbError.message}`);
-      throw new BadRequestException(
-        `Profile update failed: ${dbError.message}`,
+      this.logger.error(
+        `Database Error: ${dbError.message} - Code: ${dbError.code}`,
       );
+
+      if (dbError.code === '23503') {
+        throw new BadRequestException(
+          'Profile link failed: Authentication user not found. Please log out and back in.',
+        );
+      }
+      throw new BadRequestException(`Update failed: ${dbError.message}`);
     }
 
-    return updatedProfile as Profile;
+    if (!updatedProfile) {
+      throw new BadRequestException('Profile update failed to return data');
+    }
+
+    return updatedProfile;
   }
 }

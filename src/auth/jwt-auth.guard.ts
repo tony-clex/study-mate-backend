@@ -4,24 +4,27 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { supabaseAdmin } from '../config/supabase.client';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    email?: string;
+  };
+  userId: string;
+}
 
 interface JwtPayload {
   sub: string;
   email?: string;
 }
 
-interface AuthenticatedRequest {
-  headers: {
-    authorization?: string;
-  };
-  user?: JwtPayload;
-  userId?: string;
-}
-
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  constructor(private jwtService: JwtService) {}
+
+  canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
@@ -31,18 +34,27 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = authHeader.substring(7);
 
-    if (!token || token.length === 0) {
-      throw new UnauthorizedException('Empty token');
-    }
-
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      request.user = payload;
+      const payload = this.jwtService.verify<JwtPayload>(token, {
+        secret: process.env.JWT_SECRET || 'SUPERSECRETKEY',
+        algorithms: ['HS256'], 
+      });
+
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException('Invalid token payload');
+      }
+
+      request.user = {
+        id: payload.sub,
+        email: payload.email,
+      };
       request.userId = payload.sub;
-    } catch {
+
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[JwtAuthGuard] Verification failed:', message);
       throw new UnauthorizedException('Invalid or expired token');
     }
-
-    return true;
   }
 }
