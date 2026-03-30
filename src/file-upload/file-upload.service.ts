@@ -3,6 +3,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
+
 import { supabaseAdmin } from '../config/supabase.client';
 
 export interface UploadedFile {
@@ -81,6 +82,61 @@ export class FileUploadService {
         file_url: urlData.publicUrl,
         file_type: file.mimetype,
         file_size: file.size,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      console.error('File upload error:', error);
+      throw new InternalServerErrorException('Failed to upload file');
+    }
+  }
+
+  async uploadFileFromUrl(
+    userId: string,
+    file: {
+      originalname: string;
+      mimetype: string;
+    },
+    folder: string,
+    fileUrl: string,
+  ): Promise<UploadedFile> {
+    try {
+      const timestamp = Date.now();
+      const fileExt = file.originalname.split('.').pop();
+      const fileName = `${userId}/${folder}/${timestamp}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new BadRequestException('Failed to fetch file from URI');
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const { error } = await supabaseAdmin.storage
+        .from(this.bucketName)
+        .upload(fileName, buffer, {
+          contentType: file.mimetype,
+          upsert: false,
+        });
+
+      if (error) {
+        console.error('Supabase upload error:', error);
+        throw new InternalServerErrorException(
+          'Failed to upload file to storage',
+        );
+      }
+
+      const { data: urlData } = supabaseAdmin.storage
+        .from(this.bucketName)
+        .getPublicUrl(fileName);
+
+      return {
+        file_name: file.originalname,
+        file_url: urlData.publicUrl,
+        file_type: file.mimetype,
+        file_size: buffer.length,
       };
     } catch (error) {
       if (error instanceof BadRequestException) {

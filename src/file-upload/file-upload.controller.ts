@@ -5,29 +5,21 @@ import {
   Body,
   UseGuards,
   Req,
-  UseInterceptors,
-  UploadedFile,
   BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  FileUploadService,
-  UploadedFile as UploadedFileType,
-} from './file-upload.service';
+import { FileUploadService } from './file-upload.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { memoryStorage } from 'multer';
 
 interface AuthenticatedRequest {
   user: { sub: string; email: string };
 }
 
-interface MulterFile {
-  originalname: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
+interface FileData {
+  uri: string;
+  name: string;
+  type: string;
 }
 
 @Controller('api/upload')
@@ -37,39 +29,102 @@ export class FileUploadController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 10 * 1024 * 1024,
-      },
-    }),
-  )
   async uploadFile(
     @Req() req: AuthenticatedRequest,
-    @UploadedFile() file: MulterFile,
-    @Body('folder') folder?: string,
+    @Body() body: { file?: string; folder?: string },
   ) {
-    if (!file) {
-      throw new BadRequestException('No file provided');
+    if (!body.file) {
+      throw new BadRequestException('No file data provided');
+    }
+
+    let fileData: FileData;
+    try {
+      const parsed: unknown =
+        typeof body.file === 'string' ? JSON.parse(body.file) : body.file;
+      if (!parsed || typeof parsed !== 'object') {
+        throw new BadRequestException('Invalid file data format');
+      }
+      fileData = parsed as FileData;
+    } catch {
+      throw new BadRequestException('Invalid file data format');
+    }
+
+    if (!fileData.uri || !fileData.name) {
+      throw new BadRequestException('File URI and name are required');
     }
 
     const userId = req.user.sub;
-    const result: UploadedFileType = await this.fileUploadService.uploadFile(
-      userId,
-      {
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        buffer: file.buffer,
-      },
-      folder || 'uploads',
-    );
+    const folder = body.folder || 'uploads';
 
-    return {
-      message: 'File uploaded successfully',
-      ...result,
-    };
+    try {
+      // Download the file from the URI and upload to storage
+      const result = await this.fileUploadService.uploadFileFromUrl(
+        userId,
+        {
+          originalname: fileData.name,
+          mimetype: fileData.type || 'application/octet-stream',
+        },
+        folder,
+        fileData.uri,
+      );
+
+      return {
+        message: 'File uploaded successfully',
+        ...result,
+      };
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw new BadRequestException(
+        `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  @Post('direct')
+  @HttpCode(HttpStatus.CREATED)
+  async uploadFileDirect(
+    @Req() req: AuthenticatedRequest,
+    @Body()
+    body: {
+      file_data: string;
+      file_name: string;
+      file_type: string;
+      folder?: string;
+    },
+  ) {
+    if (!body.file_data || !body.file_name) {
+      throw new BadRequestException('File data and name are required');
+    }
+
+    const userId = req.user.sub;
+    const folder = body.folder || 'uploads';
+
+    try {
+      // Decode base64 file data
+      const buffer = Buffer.from(body.file_data, 'base64');
+
+      // Upload to storage
+      const result = await this.fileUploadService.uploadFile(
+        userId,
+        {
+          originalname: body.file_name,
+          mimetype: body.file_type || 'application/octet-stream',
+          size: buffer.length,
+          buffer: buffer,
+        },
+        folder,
+      );
+
+      return {
+        message: 'File uploaded successfully',
+        ...result,
+      };
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw new BadRequestException(
+        `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
   @Delete()

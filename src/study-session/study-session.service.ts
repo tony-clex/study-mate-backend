@@ -408,14 +408,12 @@ export class StudySessionService {
     return { message: 'Session note deleted successfully' };
   }
 
-  // File management methods
   async createFile(
     userId: string,
     createDto: CreateSessionFileDto,
   ): Promise<SessionFileResponse> {
     const { session_id, file_url, file_name, file_type, file_size } = createDto;
 
-    // Verify session exists
     await this.findOne(userId, session_id);
 
     const { data, error } = (await supabaseAdmin
@@ -456,7 +454,6 @@ export class StudySessionService {
     userId: string,
     sessionId: string,
   ): Promise<SessionFileListResponse> {
-    // Verify session exists
     await this.findOne(userId, sessionId);
 
     const { data, error } = (await supabaseAdmin
@@ -495,7 +492,6 @@ export class StudySessionService {
     userId: string,
     fileId: string,
   ): Promise<{ message: string }> {
-    // Verify file exists and belongs to user
     const { data: existingFile, error: findError } = (await supabaseAdmin
       .from('session_files')
       .select('*')

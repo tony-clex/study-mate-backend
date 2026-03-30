@@ -32,8 +32,7 @@ ON storage.objects
 FOR INSERT
 TO authenticated
 WITH CHECK (
-  bucket_id = 'study-files' 
-  AND (storage.foldername(name))[1] = auth.uid()::text
+  bucket_id = 'study-files'
 );
 
 CREATE POLICY "Allow users to view their own files"
@@ -41,8 +40,7 @@ ON storage.objects
 FOR SELECT
 TO authenticated
 USING (
-  bucket_id = 'study-files' 
-  AND (storage.foldername(name))[1] = auth.uid()::text
+  bucket_id = 'study-files'
 );
 
 CREATE POLICY "Allow users to delete their own files"
@@ -50,8 +48,7 @@ ON storage.objects
 FOR DELETE
 TO authenticated
 USING (
-  bucket_id = 'study-files' 
-  AND (storage.foldername(name))[1] = auth.uid()::text
+  bucket_id = 'study-files'
 );
 
 CREATE POLICY "Allow public read access to files"
