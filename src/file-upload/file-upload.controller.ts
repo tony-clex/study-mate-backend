@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { memoryStorage } from 'multer';
 
 interface AuthenticatedRequest {
-  user: { sub: string; email: string };
+  user: { id: string; email: string };
 }
 
 interface MulterFile {
@@ -54,7 +54,7 @@ export class FileUploadController {
       throw new BadRequestException('No file provided');
     }
 
-    const userId = req.user.sub;
+    const userId = req.user.id;
     const result: UploadedFileType = await this.fileUploadService.uploadFile(
       userId,
       {
