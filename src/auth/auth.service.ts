@@ -1,12 +1,161 @@
+// import {
+//   Injectable,
+//   BadRequestException,
+//   UnauthorizedException,
+// } from '@nestjs/common';
+// import { JwtService } from '@nestjs/jwt';
+// import { supabaseAdmin } from '../config/supabase.client';
+// import { RegisterDto } from './dto/register.dto';
+// import { LoginDto } from './dto/login.dto';
+// import { AdminUserAttributes } from '@supabase/supabase-js';
+
+// const MAX_RETRIES = 3;
+// const RETRY_DELAY_MS = 1000;
+
+// @Injectable()
+// export class AuthService {
+//   constructor(private jwtService: JwtService) {}
+
+//   private async withRetry<T>(
+//     operation: () => Promise<T>,
+//     _operationName: string = 'operation', // FIXED: Added underscore to unused variable
+//   ): Promise<T> {
+//     let lastError: Error | null = null;
+//     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+//       try {
+//         return await operation();
+//       } catch (err: unknown) { // FIXED: Changed to unknown
+//         const error = err instanceof Error ? err : new Error(String(err));
+//         const errorMessage = error.message.toLowerCase();
+//         const isRetryable =
+//           errorMessage.includes('fetch failed') ||
+//           errorMessage.includes('network') ||
+//           errorMessage.includes('connection') ||
+//           errorMessage.includes('timeout') ||
+//           errorMessage.includes('econnrefused');
+
+//         lastError = error;
+//         if (isRetryable && attempt < MAX_RETRIES) {
+//           const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+//           await new Promise((resolve) => setTimeout(resolve, delay));
+//           continue;
+//         }
+//         throw error;
+//       }
+//     }
+//     throw lastError ?? new Error('Operation failed');
+//   }
+
+//   // --- GOOGLE METHODS ---
+//   async signInWithGoogle() {
+//     const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
+//       provider: 'google',
+//       options: { redirectTo: process.env.SUPABASE_REDIRECT_URL },
+//     });
+//     if (error) throw new BadRequestException(error.message);
+//     return { url: data.url };
+//   }
+
+//   async registerWithGoogle() {
+//     return this.signInWithGoogle();
+//   }
+
+//   async handleOAuthCallback(code: string) {
+//     const { data, error } = await supabaseAdmin.auth.exchangeCodeForSession(code);
+//     if (error || !data.user) throw new BadRequestException('OAuth failed');
+
+//     const payload = { sub: data.user.id, email: data.user.email };
+//     const token = this.jwtService.sign(payload);
+
+//     return {
+//       message: 'OAuth successful',
+//       access_token: token,
+//       user: { id: data.user.id, email: data.user.email },
+//     };
+//   }
+
+//   // --- CORE AUTH METHODS ---
+//   async register(registerDto: RegisterDto) {
+//     const { name, email, password } = registerDto;
+//     try {
+//       await this.withRetry(async () => {
+//         const { error } = await supabaseAdmin.auth.signUp({
+//           email,
+//           password,
+//           options: { data: { name } },
+//         });
+//         if (error) throw error;
+//       }, 'signUp');
+
+//       const loginResult = await this.withRetry(async () => {
+//         const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+//         if (error) throw error;
+//         return data;
+//       }, 'signIn');
+
+//       const payload = { sub: loginResult.user.id, email: loginResult.user.email };
+//       const token = this.jwtService.sign(payload);
+
+//       return {
+//         message: 'User registered successfully',
+//         access_token: token,
+//         user: { id: loginResult.user.id, email: loginResult.user.email, name },
+//       };
+//     } catch (err: unknown) { // FIXED: changed to unknown
+//       const errorMessage = err instanceof Error ? err.message : 'Registration failed';
+//       console.error('CRITICAL REGISTRATION ERROR:', errorMessage);
+//       throw new BadRequestException(errorMessage);
+//     }
+//   }
+
+//   async login(loginDto: LoginDto) {
+//     const { email, password } = loginDto;
+//     try {
+//       const data = await this.withRetry(async () => {
+//         const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+//         if (error) throw error;
+//         return data;
+//       }, 'signIn');
+
+//       const payload = { sub: data.user.id, email: data.user.email };
+//       const token = this.jwtService.sign(payload);
+
+//       return {
+//         message: 'Login successful',
+//         access_token: token,
+//         user: { id: data.user.id, email: data.user.email },
+//       };
+//     } catch (_err: unknown) { // FIXED: Renamed to _err (unused) and typed
+//       throw new UnauthorizedException('Invalid email or password');
+//     }
+//   }
+
+//   // --- ACCOUNT UPDATE METHOD ---
+//   async updateAccount(userId: string, newEmail?: string, newPassword?: string) {
+//     if (!userId) throw new BadRequestException('UserId is required');
+
+//     // FIXED: Use proper Supabase type instead of any
+//     const attributes: AdminUserAttributes = {};
+//     if (newEmail) attributes.email = newEmail;
+//     if (newPassword) attributes.password = newPassword;
+
+//     const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, attributes);
+//     if (error) throw new BadRequestException(error.message);
+
+//     return { message: 'Account updated successfully', user: data.user };
+//   }
+// }
+
 import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { supabaseAdmin } from '../config/supabase.client'; // This is your defined client
+import { supabaseAdmin } from '../config/supabase.client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { AdminUserAttributes } from '@supabase/supabase-js';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -15,351 +164,147 @@ const RETRY_DELAY_MS = 1000;
 export class AuthService {
   constructor(private jwtService: JwtService) {}
 
-  private async withRetry<T>(
-    operation: () => Promise<T>,
-    operationName: string = 'operation',
-  ): Promise<T> {
+  // FIXED: Removed the unused _operationName argument entirely
+  private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
     let lastError: Error | null = null;
-
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         return await operation();
-      } catch (err) {
+      } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         const errorMessage = error.message.toLowerCase();
-
         const isRetryable =
           errorMessage.includes('fetch failed') ||
           errorMessage.includes('network') ||
           errorMessage.includes('connection') ||
           errorMessage.includes('timeout') ||
-          errorMessage.includes('econnrefused') ||
-          errorMessage.includes('enotfound') ||
-          errorMessage.includes('socket') ||
-          errorMessage.includes('abort');
+          errorMessage.includes('econnrefused');
 
         lastError = error;
-
         if (isRetryable && attempt < MAX_RETRIES) {
           const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-          console.log(
-            `Retry ${attempt}/${MAX_RETRIES} for ${operationName} after ${delay}ms...`,
-          );
-
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
-
         throw error;
       }
     }
-
-    throw lastError ?? new Error('Operation failed after retries');
+    throw lastError ?? new Error('Operation failed');
   }
 
-  // FIXED: Changed 'supabase' to 'supabaseAdmin'
+  // --- GOOGLE METHODS ---
   async signInWithGoogle() {
     const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: process.env.SUPABASE_REDIRECT_URL,
-      },
+      options: { redirectTo: process.env.SUPABASE_REDIRECT_URL },
     });
-
-    if (error) {
-      throw new BadRequestException({
-        message: 'Google sign-in failed',
-        error: error.message,
-      });
-    }
-
-    return {
-      url: data.url,
-    };
+    if (error) throw new BadRequestException(error.message);
+    return { url: data.url };
   }
 
-  // FIXED: Changed 'supabase' to 'supabaseAdmin'
   async registerWithGoogle() {
-    const { data, error } = await supabaseAdmin.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: process.env.SUPABASE_REDIRECT_URL,
-      },
-    });
-
-    if (error) {
-      throw new BadRequestException({
-        message: 'Google registration failed',
-        error: error.message,
-      });
-    }
-
-    return {
-      url: data.url,
-    };
+    return this.signInWithGoogle();
   }
 
-  // FIXED: Changed 'supabase' to 'supabaseAdmin'
   async handleOAuthCallback(code: string) {
     const { data, error } =
       await supabaseAdmin.auth.exchangeCodeForSession(code);
-
-    if (error || !data.user) {
-      throw new BadRequestException({
-        message: 'OAuth callback failed',
-        error: error?.message || 'No user data',
-      });
-    }
+    if (error || !data.user) throw new BadRequestException('OAuth failed');
 
     const payload = { sub: data.user.id, email: data.user.email };
     const token = this.jwtService.sign(payload);
 
-    const userMeta = data.user.user_metadata as
-      | Record<string, string>
-      | undefined;
-    const userName = userMeta?.name || userMeta?.full_name;
-
     return {
-      message: 'OAuth sign-in successful',
+      message: 'OAuth successful',
       access_token: token,
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        name: userName ?? 'No name',
-      },
+      user: { id: data.user.id, email: data.user.email },
     };
   }
 
+  // --- CORE AUTH METHODS ---
   async register(registerDto: RegisterDto) {
     const { name, email, password } = registerDto;
-
     try {
+      // FIXED: Removed 'signUp' string as withRetry no longer takes a name
       await this.withRetry(async () => {
-        const result = await supabaseAdmin.auth.signUp({
+        const { error } = await supabaseAdmin.auth.signUp({
           email,
           password,
           options: { data: { name } },
         });
+        if (error) throw error;
+      });
 
-        if (result.error) {
-          throw result.error;
-        }
-        return result;
-      }, 'signUp');
-
+      // FIXED: Removed 'signIn' string
       const loginResult = await this.withRetry(async () => {
-        const result = await supabaseAdmin.auth.signInWithPassword({
+        const { data, error } = await supabaseAdmin.auth.signInWithPassword({
           email,
           password,
         });
-
-        if (result.error) {
-          throw result.error;
-        }
-        return result;
-      }, 'signIn');
-
-      if (!loginResult.data?.user) {
-        throw new BadRequestException('Failed to log in after registration');
-      }
+        if (error) throw error;
+        return data;
+      });
 
       const payload = {
-        sub: loginResult.data.user.id,
-        email: loginResult.data.user.email,
+        sub: loginResult.user.id,
+        email: loginResult.user.email,
       };
       const token = this.jwtService.sign(payload);
 
-      const userMeta = loginResult.data.user.user_metadata as
-        | Record<string, string>
-        | undefined;
-      const userName = userMeta?.name;
-
       return {
         message: 'User registered successfully',
-        access_token: loginResult.data.session?.access_token || token,
-        refresh_token: loginResult.data.session?.refresh_token,
-        expires_in: loginResult.data.session?.expires_in,
-        user: {
-          id: loginResult.data.user.id,
-          email: loginResult.data.user.email,
-          name: userName ?? name,
-        },
+        access_token: token,
+        user: { id: loginResult.user.id, email: loginResult.user.email, name },
       };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      const lowerMessage = errorMessage.toLowerCase();
-
-      if (
-        lowerMessage.includes('fetch failed') ||
-        lowerMessage.includes('network') ||
-        lowerMessage.includes('connection') ||
-        lowerMessage.includes('timeout') ||
-        lowerMessage.includes('econnrefused') ||
-        lowerMessage.includes('enotfound')
-      ) {
-        throw new BadRequestException({
-          message: 'Unable to connect to the server',
-          error: 'Please check your internet connection and try again.',
-        });
-      }
-
-      if (lowerMessage.includes('already registered')) {
-        throw new BadRequestException('Email already registered');
-      }
-      if (lowerMessage.includes('rate limit')) {
-        throw new BadRequestException(
-          'Too many registration attempts. Please wait a few minutes and try again.',
-        );
-      }
-
-      throw new BadRequestException({
-        message: 'Sorry registration failed',
-        error: errorMessage,
-      });
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Registration failed';
+      console.error('CRITICAL REGISTRATION ERROR:', errorMessage);
+      throw new BadRequestException(errorMessage);
     }
   }
 
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
-
-    console.log('[Auth] Login attempt for email:', email);
-
     try {
-      // FIXED: using supabaseAdmin and ensuring result is correctly captured
-      const result = await this.withRetry(async () => {
+      const data = await this.withRetry(async () => {
         const { data, error } = await supabaseAdmin.auth.signInWithPassword({
           email,
           password,
         });
+        if (error) throw error;
+        return data;
+      });
 
-        if (error) {
-          console.error('[Auth] Supabase signIn error:', {
-            name: error.name,
-            message: error.message,
-            status: error.status,
-          });
-          throw error;
-        }
-        return data; // returns { user, session }
-      }, 'signIn');
-
-      if (!result?.user) {
-        console.error('[Auth] Login failed: no user returned');
-        throw new UnauthorizedException('Invalid email or password');
-      }
-
-      if (
-        !result.user.email_confirmed_at &&
-        !result.user.confirmation_sent_at
-      ) {
-        console.warn('[Auth] Login attempt for unconfirmed email:', email);
-        throw new UnauthorizedException(
-          'Please confirm your email address before logging in',
-        );
-      }
-
-      console.log('[Auth] Login successful for user:', result.user.id);
-
-      const payload = { sub: result.user.id, email: result.user.email };
+      const payload = { sub: data.user.id, email: data.user.email };
       const token = this.jwtService.sign(payload);
-
-      // FIXED: Changed 'data.user' to 'result.user' because 'data' was only defined inside the withRetry callback
-      const userMeta = result.user.user_metadata as
-        | Record<string, string>
-        | undefined;
-      const userName = userMeta?.name;
 
       return {
         message: 'Login successful',
-        access_token: result.session?.access_token || token,
-        refresh_token: result.session?.refresh_token,
-        expires_in: result.session?.expires_in,
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          name: userName ?? 'No name',
-        },
+        access_token: token,
+        user: { id: data.user.id, email: data.user.email },
       };
-    } catch (err) {
-      // Catch block remains the same
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      const lowerMessage = errorMessage.toLowerCase();
-
-      console.error('[Auth] Login error:', err);
-
-      if (
-        lowerMessage.includes('fetch failed') ||
-        lowerMessage.includes('network') ||
-        lowerMessage.includes('connection') ||
-        lowerMessage.includes('timeout') ||
-        lowerMessage.includes('econnrefused') ||
-        lowerMessage.includes('enotfound')
-      ) {
-        throw new BadRequestException({
-          message: 'Unable to connect to the server',
-          error: 'Please check your internet connection and try again.',
-        });
-      }
-
-      if (
-        lowerMessage.includes('invalid') ||
-        lowerMessage.includes('credentials') ||
-        lowerMessage.includes('invalid login') ||
-        lowerMessage.includes('wrong password')
-      ) {
-        console.warn('[Auth] Invalid credentials for email:', email);
-        throw new UnauthorizedException('Invalid email or password');
-      }
-
-      if (lowerMessage.includes('email') && lowerMessage.includes('confirm')) {
-        throw new UnauthorizedException(
-          'Please confirm your email address before logging in',
-        );
-      }
-
-      if (err instanceof UnauthorizedException) {
-        throw err;
-      }
-
-      throw new UnauthorizedException({
-        message: 'Login failed',
-        error: 'Invalid email or password',
-      });
+    } catch {
+      // FIXED: Removed (_err: unknown) entirely.
+      // JavaScript/TypeScript allows 'catch' without a variable.
+      throw new UnauthorizedException('Invalid email or password');
     }
   }
 
-  // Add this to the bottom of your AuthService class
+  // --- ACCOUNT UPDATE METHOD ---
   async updateAccount(userId: string, newEmail?: string, newPassword?: string) {
     if (!userId) throw new BadRequestException('UserId is required');
 
-    const attributes: Record<string, string> = {};
-    if (newEmail) {
-      attributes.email = newEmail;
-    }
-    if (newPassword) {
-      attributes.password = newPassword;
-    }
+    const attributes: AdminUserAttributes = {};
+    if (newEmail) attributes.email = newEmail;
+    if (newPassword) attributes.password = newPassword;
 
-    // We use the admin client because updating user attributes
-    // often requires higher permissions in Supabase
-    const response = await supabaseAdmin.auth.admin.updateUserById(
+    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
       attributes,
     );
+    if (error) throw new BadRequestException(error.message);
 
-    const error = response.error as Error | null;
-    const data = response.data;
-
-    if (error) {
-      console.error('[Auth] Account update error:', error.message);
-      throw new BadRequestException(`Account update failed: ${error.message}`);
-    }
-
-    return {
-      message: newEmail
-        ? 'Confirmation email sent to both old and new addresses. Please confirm to finish.'
-        : 'Password updated successfully',
-      user: data?.user,
-    };
+    return { message: 'Account updated successfully', user: data.user };
   }
 }

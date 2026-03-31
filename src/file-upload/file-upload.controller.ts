@@ -10,17 +10,21 @@ import {
   BadRequestException,
   HttpCode,
   HttpStatus,
+  Param,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Request } from 'express';
 import {
   FileUploadService,
   UploadedFile as UploadedFileType,
 } from './file-upload.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { memoryStorage } from 'multer';
 
-interface AuthenticatedRequest {
-  user: { sub: string; email: string };
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    email?: string;
+  };
 }
 
 interface MulterFile {
@@ -30,21 +34,14 @@ interface MulterFile {
   buffer: Buffer;
 }
 
-@Controller('api/upload')
+@Controller()
 @UseGuards(JwtAuthGuard)
 export class FileUploadController {
   constructor(private readonly fileUploadService: FileUploadService) {}
 
-  @Post()
+  @Post('api/upload')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 10 * 1024 * 1024,
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file'))
   async uploadFile(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: MulterFile,
@@ -54,7 +51,7 @@ export class FileUploadController {
       throw new BadRequestException('No file provided');
     }
 
-    const userId = req.user.sub;
+    const userId = req.user.id;
     const result: UploadedFileType = await this.fileUploadService.uploadFile(
       userId,
       {
@@ -72,7 +69,7 @@ export class FileUploadController {
     };
   }
 
-  @Delete()
+  @Delete('api/upload')
   @HttpCode(HttpStatus.OK)
   async deleteFile(@Body('file_url') fileUrl: string) {
     if (!fileUrl) {
@@ -86,7 +83,7 @@ export class FileUploadController {
     };
   }
 
-  @Post('signed-url')
+  @Post('api/upload/signed-url')
   @HttpCode(HttpStatus.OK)
   async getSignedUrl(
     @Body('file_url') fileUrl: string,
@@ -103,6 +100,39 @@ export class FileUploadController {
 
     return {
       signed_url: signedUrl,
+    };
+  }
+
+  @Post('session/:id')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadSessionFile(
+    @Req() req: AuthenticatedRequest,
+    @UploadedFile() file: MulterFile,
+    @Param('id') sessionId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const result = await this.fileUploadService.uploadFile(
+      req.user.id,
+      {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        buffer: file.buffer,
+      },
+      `sessions/${sessionId}`,
+    );
+
+    return {
+      message: 'Uploaded to session!',
+      session_id: sessionId,
+      file_url: result.file_url,
+      file_name: result.file_name,
+      file_type: result.file_type,
+      file_size: result.file_size,
     };
   }
 }

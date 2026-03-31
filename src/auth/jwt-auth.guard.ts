@@ -4,24 +4,27 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { supabaseAdmin } from '../config/supabase.client';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    email?: string;
+  };
+  userId: string;
+}
 
 interface JwtPayload {
   sub: string;
   email?: string;
 }
 
-interface AuthenticatedRequest {
-  headers: {
-    authorization?: string;
-  };
-  user?: JwtPayload;
-  userId?: string;
-}
-
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  constructor(private readonly jwtService: JwtService) {}
+
+  canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
@@ -29,11 +32,11 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('No token provided');
     }
 
-    const token = authHeader.substring(7);
-
-    if (!token || token.length === 0) {
-      throw new UnauthorizedException('Empty token');
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET is not defined');
     }
+
+    const token = authHeader.substring(7);
 
     try {
       // Use Supabase to verify the JWT token
@@ -54,7 +57,5 @@ export class JwtAuthGuard implements CanActivate {
       }
       throw new UnauthorizedException('Invalid or expired token');
     }
-
-    return true;
   }
 }

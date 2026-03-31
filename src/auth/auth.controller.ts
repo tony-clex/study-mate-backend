@@ -16,7 +16,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 
 interface AuthenticatedRequest extends Request {
   user: {
-    sub: string;
+    id: string;
     email?: string;
   };
 }
@@ -56,7 +56,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { email?: string; password?: string },
   ) {
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
 
     if (!userId) {
       throw new BadRequestException('User ID not found in request');
