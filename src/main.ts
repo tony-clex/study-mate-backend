@@ -66,7 +66,6 @@ async function bootstrap() {
   console.log(`🚀 Server is listening on all interfaces`);
   console.log(`📱 For Expo Go, use: http://192.168.1.172:3000`);
 }
-
 bootstrap().catch((err) => {
   console.error('Failed to start application:', err);
 });

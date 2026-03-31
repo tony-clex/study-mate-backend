@@ -39,24 +39,22 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.substring(7);
 
     try {
-      const payload = this.jwtService.verify<JwtPayload>(token, {
-        secret: process.env.JWT_SECRET,
-      });
+      // Use Supabase to verify the JWT token
+      const { data: user, error } = await supabaseAdmin.auth.getUser(token);
 
-      if (!payload?.sub) {
-        throw new UnauthorizedException('Invalid token payload');
+      if (error || !user) {
+        throw new UnauthorizedException('Invalid or expired token');
       }
 
       request.user = {
-        id: payload.sub,
-        email: payload.email,
+        sub: user.user.id,
+        email: user.user.email,
       };
-      request.userId = payload.sub;
-
-      return true;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[JwtAuthGuard] Verification failed:', message);
+      request.userId = user.user.id;
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
