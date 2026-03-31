@@ -22,7 +22,7 @@ interface JwtPayload {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
+  constructor(private readonly jwtService: JwtService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -32,15 +32,18 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('No token provided');
     }
 
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET is not defined');
+    }
+
     const token = authHeader.substring(7);
 
     try {
       const payload = this.jwtService.verify<JwtPayload>(token, {
-        secret: process.env.JWT_SECRET || 'SUPERSECRETKEY',
-        algorithms: ['HS256', 'HS384', 'HS512'],
+        secret: process.env.JWT_SECRET,
       });
 
-      if (!payload || !payload.sub) {
+      if (!payload?.sub) {
         throw new UnauthorizedException('Invalid token payload');
       }
 
