@@ -23,7 +23,7 @@
 // import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 // interface AuthenticatedRequest {
-//   user: { id: string; email: string };
+//   user: { sub: string; email: string };
 //   userId: string;
 // }
 
@@ -38,13 +38,13 @@
 //     @Req() req: AuthenticatedRequest,
 //     @Body() createDto: CreateStudySessionDto,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.create(userId, createDto);
 //   }
 
 //   @Get('list')
 //   async findAll(@Req() req: AuthenticatedRequest) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.findAll(userId);
 //   }
 
@@ -53,7 +53,7 @@
 //     @Req() req: AuthenticatedRequest,
 //     @Param('id', ParseUUIDPipe) id: string,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.findOne(userId, id);
 //   }
 
@@ -63,7 +63,7 @@
 //     @Param('id', ParseUUIDPipe) id: string,
 //     @Body() updateDto: UpdateStudySessionDto,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.update(userId, id, updateDto);
 //   }
 
@@ -73,7 +73,7 @@
 //     @Req() req: AuthenticatedRequest,
 //     @Param('id', ParseUUIDPipe) id: string,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.remove(userId, id);
 //   }
 
@@ -84,7 +84,7 @@
 //     @Param('sessionId', ParseUUIDPipe) sessionId: string,
 //     @Body() createDto: CreateSessionNoteDto,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.createNote(userId, {
 //       ...createDto,
 //       session_id: sessionId,
@@ -96,7 +96,7 @@
 //     @Req() req: AuthenticatedRequest,
 //     @Param('sessionId', ParseUUIDPipe) sessionId: string,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.findAllNotes(userId, sessionId);
 //   }
 
@@ -106,7 +106,7 @@
 //     @Param('sessionId', ParseUUIDPipe) sessionId: string,
 //     @Param('noteId', ParseUUIDPipe) noteId: string,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.findNoteById(userId, noteId);
 //   }
 
@@ -117,7 +117,7 @@
 //     @Param('noteId', ParseUUIDPipe) noteId: string,
 //     @Body() updateDto: UpdateSessionNoteDto,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.updateNote(userId, noteId, updateDto);
 //   }
 
@@ -128,7 +128,7 @@
 //     @Param('sessionId', ParseUUIDPipe) sessionId: string,
 //     @Param('noteId', ParseUUIDPipe) noteId: string,
 //   ) {
-//     const userId = req.user.id;
+//     const userId = req.user.sub;
 //     return this.studySessionService.removeNote(userId, noteId);
 //   }
 
@@ -178,28 +178,21 @@ import {
   Param,
   UseGuards,
   Req,
-  HttpCode,
-  HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { StudySessionService } from './study-session.service';
 import {
   CreateStudySessionDto,
   UpdateStudySessionDto,
-  CreateSessionNoteDto,
-  UpdateSessionNoteDto,
-  CreateSessionFileDto,
 } from './dto/study-session.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Request } from 'express';
 
-// FIXED: Interface now matches the logic used in your Guard and Service
 interface AuthenticatedRequest extends Request {
   user: {
     id: string;
     email?: string;
   };
-  userId: string;
 }
 
 @Controller('api/session')
@@ -208,7 +201,6 @@ export class StudySessionController {
   constructor(private readonly studySessionService: StudySessionService) {}
 
   @Post('create')
-  @HttpCode(HttpStatus.CREATED)
   async create(
     @Req() req: AuthenticatedRequest,
     @Body() createDto: CreateStudySessionDto,
@@ -236,111 +228,18 @@ export class StudySessionController {
   async update(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateDto: UpdateStudySessionDto,
+    @Body() dto: UpdateStudySessionDto,
   ) {
     const userId = req.user.id;
-    return this.studySessionService.update(userId, id, updateDto);
+    return this.studySessionService.update(userId, id, dto);
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.OK)
   async remove(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const userId = req.user.id;
     return this.studySessionService.remove(userId, id);
-  }
-
-  @Post(':sessionId/notes')
-  @HttpCode(HttpStatus.CREATED)
-  async createNote(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
-    @Body() createDto: CreateSessionNoteDto,
-  ) {
-    const userId = req.user.id;
-    return this.studySessionService.createNote(userId, {
-      ...createDto,
-      session_id: sessionId,
-    });
-  }
-
-  @Get(':sessionId/notes')
-  async findAllNotes(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
-  ) {
-    const userId = req.user.id;
-    return this.studySessionService.findAllNotes(userId, sessionId);
-  }
-
-  @Get(':sessionId/notes/:noteId')
-  async findNoteById(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) _sessionId: string, // FIXED: Prefix with underscore if unused
-    @Param('noteId', ParseUUIDPipe) noteId: string,
-  ) {
-    const userId = req.user.id;
-    return this.studySessionService.findNoteById(userId, noteId);
-  }
-
-  @Patch(':sessionId/notes/:noteId')
-  async updateNote(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) _sessionId: string,
-    @Param('noteId', ParseUUIDPipe) noteId: string,
-    @Body() updateDto: UpdateSessionNoteDto,
-  ) {
-    const userId = req.user.id;
-    return this.studySessionService.updateNote(userId, noteId, updateDto);
-  }
-
-  @Delete(':sessionId/notes/:noteId')
-  @HttpCode(HttpStatus.OK)
-  async removeNote(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) _sessionId: string,
-    @Param('noteId', ParseUUIDPipe) noteId: string,
-  ) {
-    const userId = req.user.id;
-    return this.studySessionService.removeNote(userId, noteId);
-  }
-
-  @Get(':sessionId/files')
-  async findAllFiles(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
-  ) {
-    // FIXED: Changed .sub to .id to match interface
-    const userId = req.user.id;
-    return this.studySessionService.findAllFiles(userId, sessionId);
-  }
-
-  @Post(':sessionId/files')
-  @HttpCode(HttpStatus.CREATED)
-  async createFile(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
-    @Body() createDto: CreateSessionFileDto,
-  ) {
-    // FIXED: Changed .sub to .id
-    const userId = req.user.id;
-    return this.studySessionService.createFile(userId, {
-      ...createDto,
-      session_id: sessionId,
-    });
-  }
-
-  @Delete(':sessionId/files/:fileId')
-  @HttpCode(HttpStatus.OK)
-  async removeFile(
-    @Req() req: AuthenticatedRequest,
-    @Param('sessionId', ParseUUIDPipe) _sessionId: string,
-    @Param('fileId', ParseUUIDPipe) fileId: string,
-  ) {
-    // FIXED: Changed .sub to .id
-    const userId = req.user.id;
-    return this.studySessionService.removeFile(userId, fileId);
   }
 }

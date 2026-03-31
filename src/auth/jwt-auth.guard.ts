@@ -37,7 +37,7 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: process.env.JWT_SECRET || 'SUPERSECRETKEY',
-        algorithms: ['HS256'],
+        algorithms: ['HS256', 'HS384', 'HS512'],
       });
 
       if (!payload || !payload.sub) {

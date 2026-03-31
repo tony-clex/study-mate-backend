@@ -14,7 +14,9 @@ export interface UploadedFile {
 
 @Injectable()
 export class FileUploadService {
-  private readonly bucketName = 'study-files';
+  // FIX: Matches your Supabase Dashboard bucket name exactly
+  private readonly bucketName = 'session-files';
+
   private readonly allowedMimeTypes = [
     'image/jpeg',
     'image/png',
@@ -29,7 +31,7 @@ export class FileUploadService {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ];
 
-  private readonly maxFileSize = 10 * 1024 * 1024;
+  private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
 
   async uploadFile(
     userId: string,
@@ -41,6 +43,7 @@ export class FileUploadService {
     },
     folder: string = 'uploads',
   ): Promise<UploadedFile> {
+    // 1. Validation
     if (!this.allowedMimeTypes.includes(file.mimetype)) {
       throw new BadRequestException(
         `File type not allowed. Allowed types: ${this.allowedMimeTypes.join(', ')}`,
@@ -48,30 +51,36 @@ export class FileUploadService {
     }
 
     if (file.size > this.maxFileSize) {
-      throw new BadRequestException(
-        `File too large. Maximum size is ${this.maxFileSize / 1024 / 1024}MB`,
-      );
+      throw new BadRequestException(`File too large. Maximum size is 10MB`);
     }
 
     try {
+      // 2. Generate Path: Matches the "User ID Folder" policy we set up
       const timestamp = Date.now();
       const fileExt = file.originalname.split('.').pop();
-      const fileName = `${userId}/${folder}/${timestamp}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const randomString = Math.random().toString(36).substring(7);
+      const fileName = `${userId}/${folder}/${timestamp}-${randomString}.${fileExt}`;
 
+      console.log(
+        `[Storage] Uploading to bucket: ${this.bucketName} path: ${fileName}`,
+      );
+
+      // 3. Perform Upload
       const { error } = await supabaseAdmin.storage
         .from(this.bucketName)
         .upload(fileName, file.buffer, {
           contentType: file.mimetype,
-          upsert: false,
+          upsert: true, // Set to true to allow replacing files if needed
         });
 
       if (error) {
-        console.error('Supabase upload error:', error);
+        console.error('Supabase upload error detail:', error);
         throw new InternalServerErrorException(
-          'Failed to upload file to storage',
+          `Supabase upload failed: ${error.message}`,
         );
       }
 
+      // 4. Generate URL
       const { data: urlData } = supabaseAdmin.storage
         .from(this.bucketName)
         .getPublicUrl(fileName);
@@ -83,22 +92,24 @@ export class FileUploadService {
         file_size: file.size,
       };
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      console.error('File upload error:', error);
-      throw new InternalServerErrorException('Failed to upload file');
+      if (error instanceof BadRequestException) throw error;
+      console.error('File upload service error:', error);
+      throw new InternalServerErrorException('Failed to process file upload');
     }
   }
 
   async deleteFile(fileUrl: string): Promise<void> {
     try {
-      const urlParts = fileUrl.split('/storage/v1/object/public/');
-      if (urlParts.length < 2) {
-        throw new BadRequestException('Invalid file URL');
+      // Extract the path after the bucket name
+      // This is safer than splitting by hardcoded strings
+      const bucketSearchStr = `${this.bucketName}/`;
+      const startIndex = fileUrl.indexOf(bucketSearchStr);
+
+      if (startIndex === -1) {
+        throw new BadRequestException('Invalid file URL for this bucket');
       }
 
-      const filePath = urlParts[1];
+      const filePath = fileUrl.substring(startIndex + bucketSearchStr.length);
 
       const { error } = await supabaseAdmin.storage
         .from(this.bucketName)
@@ -106,12 +117,12 @@ export class FileUploadService {
 
       if (error) {
         console.error('Supabase delete error:', error);
-        throw new InternalServerErrorException('Failed to delete file');
+        throw new InternalServerErrorException(
+          'Failed to delete file from Supabase',
+        );
       }
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
+      if (error instanceof BadRequestException) throw error;
       console.error('File delete error:', error);
       throw new InternalServerErrorException('Failed to delete file');
     }
@@ -122,28 +133,27 @@ export class FileUploadService {
     expiresIn: number = 3600,
   ): Promise<string> {
     try {
-      const urlParts = fileUrl.split('/storage/v1/object/public/');
-      if (urlParts.length < 2) {
+      const bucketSearchStr = `${this.bucketName}/`;
+      const startIndex = fileUrl.indexOf(bucketSearchStr);
+
+      if (startIndex === -1) {
         throw new BadRequestException('Invalid file URL');
       }
 
-      const filePath = urlParts[1];
+      const filePath = fileUrl.substring(startIndex + bucketSearchStr.length);
 
       const { data, error } = await supabaseAdmin.storage
         .from(this.bucketName)
         .createSignedUrl(filePath, expiresIn);
 
-      if (error) {
+      if (error || !data) {
         console.error('Supabase signed URL error:', error);
         throw new InternalServerErrorException('Failed to create signed URL');
       }
 
       return data.signedUrl;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      console.error('Get signed URL error:', error);
+      if (error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Failed to get signed URL');
     }
   }

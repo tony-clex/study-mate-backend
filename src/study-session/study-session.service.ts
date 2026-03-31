@@ -53,6 +53,28 @@
 
 // @Injectable()
 // export class StudySessionService {
+//   /**
+//    * Helper to map Supabase errors to NestJS Exceptions
+//    * Moved inside the class to resolve Scope/Export issues
+//    */
+//   private mapSupabaseError(error: unknown, operation: string): never {
+//     if (error && typeof error === 'object' && 'message' in error) {
+//       const errMsg = (error as { message: string }).message.toLowerCase();
+//       if (errMsg.includes('row') && errMsg.includes('not found')) {
+//         throw new NotFoundException(`${operation} failed: resource not found`);
+//       }
+//       if (errMsg.includes('duplicate') || errMsg.includes('unique')) {
+//         throw new BadRequestException(`${operation} failed: duplicate entry`);
+//       }
+//       if (errMsg.includes('violates') || errMsg.includes('constraint')) {
+//         throw new BadRequestException(
+//           `${operation} failed: constraint violation`,
+//         );
+//       }
+//     }
+//     throw new InternalServerErrorException(`${operation} failed`);
+//   }
+
 //   async create(
 //     userId: string,
 //     createDto: CreateStudySessionDto,
@@ -71,10 +93,10 @@
 //         subject: subject?.trim() || null,
 //       })
 //       .select()
-//       .single()) as { data: StudySessionDbRow | null; error: null };
+//       .single()) as { data: StudySessionDbRow | null; error: any };
 
 //     if (error) {
-//       mapSupabaseError(error, 'create session');
+//       this.mapSupabaseError(error, 'create session');
 //     }
 
 //     if (!data) {
@@ -99,11 +121,11 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: StudySessionDbRow[] | null;
-//       error: null;
+//       error: any;
 //     };
 
 //     if (error) {
-//       mapSupabaseError(error, 'fetch sessions');
+//       this.mapSupabaseError(error, 'fetch sessions');
 //     }
 
 //     const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
@@ -129,7 +151,7 @@
 //       .select('*')
 //       .eq('id', sessionId)
 //       .eq('user_id', userId)
-//       .single()) as { data: StudySessionDbRow | null; error: null };
+//       .single()) as { data: StudySessionDbRow | null; error: any };
 
 //     if (error || !data) {
 //       throw new NotFoundException('Study session not found');
@@ -163,22 +185,21 @@
 //       .eq('id', sessionId)
 //       .eq('user_id', userId)
 //       .select()
-//       .single()) as { data: StudySessionDbRow | null; error: null };
+//       .single()) as { data: StudySessionDbRow | null; error: any };
 
 //     if (error || !data) {
-//       mapSupabaseError(
+//       this.mapSupabaseError(
 //         error || new Error('Session not found'),
 //         'update session',
 //       );
 //     }
 
-//     // TypeScript knows data is not null after mapSupabaseError (it throws)
 //     return {
-//       id: data!.id,
-//       user_id: data!.user_id,
-//       title: data!.title,
-//       subject: data!.subject,
-//       created_at: data!.created_at,
+//       id: data.id,
+//       user_id: data.user_id,
+//       title: data.title,
+//       subject: data.subject,
+//       created_at: data.created_at,
 //     };
 //   }
 
@@ -195,7 +216,7 @@
 //       .eq('user_id', userId);
 
 //     if (error) {
-//       mapSupabaseError(error, 'delete session');
+//       this.mapSupabaseError(error, 'delete session');
 //     }
 
 //     return { message: 'Study session deleted successfully' };
@@ -222,7 +243,7 @@
 //         file_type: file_type || null,
 //       })
 //       .select()
-//       .single()) as { data: SessionNoteDbRow | null; error: null };
+//       .single()) as { data: SessionNoteDbRow | null; error: any };
 
 //     if (error) {
 //       console.error('Supabase insert note error:', error);
@@ -260,7 +281,7 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: SessionNoteDbRow[] | null;
-//       error: null;
+//       error: any;
 //     };
 
 //     if (error) {
@@ -296,7 +317,7 @@
 //       .select('*')
 //       .eq('id', noteId)
 //       .eq('user_id', userId)
-//       .single()) as { data: SessionNoteDbRow | null; error: null };
+//       .single()) as { data: SessionNoteDbRow | null; error: any };
 
 //     if (error || !data) {
 //       throw new NotFoundException('Session note not found');
@@ -349,7 +370,7 @@
 //       .eq('id', noteId)
 //       .eq('user_id', userId)
 //       .select()
-//       .single()) as { data: SessionNoteDbRow | null; error: null };
+//       .single()) as { data: SessionNoteDbRow | null; error: any };
 
 //     if (error || !data) {
 //       console.error('Supabase update note error:', error);
@@ -390,14 +411,12 @@
 //     return { message: 'Session note deleted successfully' };
 //   }
 
-//   // File management methods
 //   async createFile(
 //     userId: string,
 //     createDto: CreateSessionFileDto,
 //   ): Promise<SessionFileResponse> {
 //     const { session_id, file_url, file_name, file_type, file_size } = createDto;
 
-//     // Verify session exists
 //     await this.findOne(userId, session_id);
 
 //     const { data, error } = (await supabaseAdmin
@@ -411,7 +430,7 @@
 //         file_size,
 //       })
 //       .select()
-//       .single()) as { data: SessionFileDbRow | null; error: null };
+//       .single()) as { data: SessionFileDbRow | null; error: any };
 
 //     if (error) {
 //       console.error('Supabase insert file error:', error);
@@ -438,7 +457,6 @@
 //     userId: string,
 //     sessionId: string,
 //   ): Promise<SessionFileListResponse> {
-//     // Verify session exists
 //     await this.findOne(userId, sessionId);
 
 //     const { data, error } = (await supabaseAdmin
@@ -448,7 +466,7 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: SessionFileDbRow[] | null;
-//       error: null;
+//       error: any;
 //     };
 
 //     if (error) {
@@ -477,13 +495,12 @@
 //     userId: string,
 //     fileId: string,
 //   ): Promise<{ message: string }> {
-//     // Verify file exists and belongs to user
 //     const { data: existingFile, error: findError } = (await supabaseAdmin
 //       .from('session_files')
 //       .select('*')
 //       .eq('id', fileId)
 //       .eq('user_id', userId)
-//       .single()) as { data: SessionFileDbRow | null; error: null };
+//       .single()) as { data: SessionFileDbRow | null; error: any };
 
 //     if (findError || !existingFile) {
 //       throw new NotFoundException('Session file not found');
@@ -557,6 +574,24 @@ interface SessionFileDbRow {
   created_at: string;
 }
 
+function mapSupabaseError(error: unknown, operation: string): never {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const errMsg = (error as { message: string }).message.toLowerCase();
+    if (errMsg.includes('row') && errMsg.includes('not found')) {
+      throw new NotFoundException(`${operation} failed: resource not found`);
+    }
+    if (errMsg.includes('duplicate') || errMsg.includes('unique')) {
+      throw new BadRequestException(`${operation} failed: duplicate entry`);
+    }
+    if (errMsg.includes('violates') || errMsg.includes('constraint')) {
+      throw new BadRequestException(
+        `${operation} failed: constraint violation`,
+      );
+    }
+  }
+  throw new InternalServerErrorException(`${operation} failed`);
+}
+
 @Injectable()
 export class StudySessionService {
   async create(
@@ -569,7 +604,7 @@ export class StudySessionService {
       throw new BadRequestException('Title cannot be empty');
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .insert({
         user_id: userId,
@@ -577,33 +612,42 @@ export class StudySessionService {
         subject: subject?.trim() || null,
       })
       .select()
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
-    if (error) mapSupabaseError(error, 'create session');
-    if (!data) throw new BadRequestException('No data returned');
+    if (error) {
+      mapSupabaseError(error, 'create session');
+    }
 
-    const result = data as StudySessionDbRow;
+    if (!data) {
+      throw new BadRequestException(
+        'Failed to create study session: no data returned',
+      );
+    }
+
     return {
-      id: result.id,
-      user_id: result.user_id,
-      title: result.title,
-      subject: result.subject,
-      created_at: result.created_at,
+      id: data.id,
+      user_id: data.user_id,
+      title: data.title,
+      subject: data.subject,
+      created_at: data.created_at,
     };
   }
 
   async findAll(userId: string): Promise<StudySessionListResponse> {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })) as {
+      data: StudySessionDbRow[] | null;
+      error: null;
+    };
 
-    if (error) mapSupabaseError(error, 'fetch sessions');
+    if (error) {
+      mapSupabaseError(error, 'fetch sessions');
+    }
 
-    const sessions: StudySessionResponse[] = (
-      (data as StudySessionDbRow[]) ?? []
-    ).map((session) => ({
+    const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
       id: session.id,
       user_id: session.user_id,
       title: session.title,
@@ -611,29 +655,33 @@ export class StudySessionService {
       created_at: session.created_at,
     }));
 
-    return { sessions, total: sessions.length };
+    return {
+      sessions,
+      total: sessions.length,
+    };
   }
 
   async findOne(
     userId: string,
     sessionId: string,
   ): Promise<StudySessionResponse> {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('id', sessionId)
       .eq('user_id', userId)
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
-    if (error || !data) throw new NotFoundException('Study session not found');
+    if (error || !data) {
+      throw new NotFoundException('Study session not found');
+    }
 
-    const result = data as StudySessionDbRow;
     return {
-      id: result.id,
-      user_id: result.user_id,
-      title: result.title,
-      subject: result.subject,
-      created_at: result.created_at,
+      id: data.id,
+      user_id: data.user_id,
+      title: data.title,
+      subject: data.subject,
+      created_at: data.created_at,
     };
   }
 
@@ -650,23 +698,28 @@ export class StudySessionService {
 
     await this.findOne(userId, sessionId);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .update({ title: title.trim() })
       .eq('id', sessionId)
       .eq('user_id', userId)
       .select()
-      .single();
+      .single()) as { data: StudySessionDbRow | null; error: null };
 
-    if (error || !data) throw new BadRequestException('Update failed');
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'update session',
+      );
+    }
 
-    const result = data as StudySessionDbRow;
+    // TypeScript knows data is not null after mapSupabaseError (it throws)
     return {
-      id: result.id,
-      user_id: result.user_id,
-      title: result.title,
-      subject: result.subject,
-      created_at: result.created_at,
+      id: data.id,
+      user_id: data.user_id,
+      title: data.title,
+      subject: data.subject,
+      created_at: data.created_at,
     };
   }
 
@@ -682,7 +735,9 @@ export class StudySessionService {
       .eq('id', sessionId)
       .eq('user_id', userId);
 
-    if (error) mapSupabaseError(error, 'delete session');
+    if (error) {
+      mapSupabaseError(error, 'delete session');
+    }
 
     return { message: 'Study session deleted successfully' };
   }
@@ -693,9 +748,10 @@ export class StudySessionService {
   ): Promise<SessionNoteResponse> {
     const { session_id, title, content, file_url, file_name, file_type } =
       createDto;
+
     await this.findOne(userId, session_id);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_notes')
       .insert({
         session_id,
@@ -707,23 +763,28 @@ export class StudySessionService {
         file_type: file_type || null,
       })
       .select()
-      .single();
+      .single()) as { data: SessionNoteDbRow | null; error: null };
 
-    if (error || !data)
+    if (error) {
+      console.error('Supabase insert note error:', error);
       throw new BadRequestException('Failed to create session note');
+    }
 
-    const result = data as SessionNoteDbRow;
+    if (!data) {
+      throw new BadRequestException('Failed to create session note');
+    }
+
     return {
-      id: result.id,
-      session_id: result.session_id,
-      user_id: result.user_id,
-      title: result.title,
-      content: result.content,
-      file_url: result.file_url,
-      file_name: result.file_name,
-      file_type: result.file_type,
-      created_at: result.created_at,
-      updated_at: result.updated_at,
+      id: data.id,
+      session_id: data.session_id,
+      user_id: data.user_id,
+      title: data.title,
+      content: data.content,
+      file_url: data.file_url,
+      file_name: data.file_name,
+      file_type: data.file_type,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
     };
   }
 
@@ -733,18 +794,22 @@ export class StudySessionService {
   ): Promise<SessionNoteListResponse> {
     await this.findOne(userId, sessionId);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_notes')
       .select('*')
       .eq('session_id', sessionId)
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })) as {
+      data: SessionNoteDbRow[] | null;
+      error: null;
+    };
 
-    if (error) throw new BadRequestException('Failed to fetch session notes');
+    if (error) {
+      console.error('Supabase select notes error:', error);
+      throw new BadRequestException('Failed to fetch session notes');
+    }
 
-    const notes: SessionNoteResponse[] = (
-      (data as SessionNoteDbRow[]) ?? []
-    ).map((note) => ({
+    const notes: SessionNoteResponse[] = (data ?? []).map((note) => ({
       id: note.id,
       session_id: note.session_id,
       user_id: note.user_id,
@@ -757,34 +822,38 @@ export class StudySessionService {
       updated_at: note.updated_at,
     }));
 
-    return { notes, total: notes.length };
+    return {
+      notes,
+      total: notes.length,
+    };
   }
 
   async findNoteById(
     userId: string,
     noteId: string,
   ): Promise<SessionNoteResponse> {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_notes')
       .select('*')
       .eq('id', noteId)
       .eq('user_id', userId)
-      .single();
+      .single()) as { data: SessionNoteDbRow | null; error: null };
 
-    if (error || !data) throw new NotFoundException('Session note not found');
+    if (error || !data) {
+      throw new NotFoundException('Session note not found');
+    }
 
-    const result = data as SessionNoteDbRow;
     return {
-      id: result.id,
-      session_id: result.session_id,
-      user_id: result.user_id,
-      title: result.title,
-      content: result.content,
-      file_url: result.file_url,
-      file_name: result.file_name,
-      file_type: result.file_type,
-      created_at: result.created_at,
-      updated_at: result.updated_at,
+      id: data.id,
+      session_id: data.session_id,
+      user_id: data.user_id,
+      title: data.title,
+      content: data.content,
+      file_url: data.file_url,
+      file_name: data.file_name,
+      file_type: data.file_type,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
     };
   }
 
@@ -796,42 +865,49 @@ export class StudySessionService {
     await this.findNoteById(userId, noteId);
 
     const updateData: Record<string, unknown> = {};
-    if (updateDto.title !== undefined)
+
+    if (updateDto.title !== undefined) {
       updateData.title = updateDto.title.trim();
-    if (updateDto.content !== undefined)
+    }
+    if (updateDto.content !== undefined) {
       updateData.content = updateDto.content?.trim() || null;
-    if (updateDto.file_url !== undefined)
+    }
+    if (updateDto.file_url !== undefined) {
       updateData.file_url = updateDto.file_url || null;
-    if (updateDto.file_name !== undefined)
+    }
+    if (updateDto.file_name !== undefined) {
       updateData.file_name = updateDto.file_name || null;
-    if (updateDto.file_type !== undefined)
+    }
+    if (updateDto.file_type !== undefined) {
       updateData.file_type = updateDto.file_type || null;
+    }
 
     updateData.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_notes')
       .update(updateData)
       .eq('id', noteId)
       .eq('user_id', userId)
       .select()
-      .single();
+      .single()) as { data: SessionNoteDbRow | null; error: null };
 
-    if (error || !data)
+    if (error || !data) {
+      console.error('Supabase update note error:', error);
       throw new BadRequestException('Failed to update session note');
+    }
 
-    const result = data as SessionNoteDbRow;
     return {
-      id: result.id,
-      session_id: result.session_id,
-      user_id: result.user_id,
-      title: result.title,
-      content: result.content,
-      file_url: result.file_url,
-      file_name: result.file_name,
-      file_type: result.file_type,
-      created_at: result.created_at,
-      updated_at: result.updated_at,
+      id: data.id,
+      session_id: data.session_id,
+      user_id: data.user_id,
+      title: data.title,
+      content: data.content,
+      file_url: data.file_url,
+      file_name: data.file_name,
+      file_type: data.file_type,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
     };
   }
 
@@ -840,24 +916,32 @@ export class StudySessionService {
     noteId: string,
   ): Promise<{ message: string }> {
     await this.findNoteById(userId, noteId);
+
     const { error } = await supabaseAdmin
       .from('session_notes')
       .delete()
       .eq('id', noteId)
       .eq('user_id', userId);
 
-    if (error) throw new BadRequestException('Failed to delete session note');
+    if (error) {
+      console.error('Supabase delete note error:', error);
+      throw new BadRequestException('Failed to delete session note');
+    }
+
     return { message: 'Session note deleted successfully' };
   }
 
+  // File management methods
   async createFile(
     userId: string,
     createDto: CreateSessionFileDto,
   ): Promise<SessionFileResponse> {
     const { session_id, file_url, file_name, file_type, file_size } = createDto;
+
+    // Verify session exists
     await this.findOne(userId, session_id);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_files')
       .insert({
         session_id,
@@ -868,20 +952,26 @@ export class StudySessionService {
         file_size,
       })
       .select()
-      .single();
+      .single()) as { data: SessionFileDbRow | null; error: null };
 
-    if (error || !data) throw new BadRequestException('Failed to link file');
+    if (error) {
+      console.error('Supabase insert file error:', error);
+      throw new BadRequestException('Failed to link file to session');
+    }
 
-    const result = data as SessionFileDbRow;
+    if (!data) {
+      throw new BadRequestException('Failed to link file to session');
+    }
+
     return {
-      id: result.id,
-      session_id: result.session_id,
-      user_id: result.user_id,
-      file_name: result.file_name,
-      file_url: result.file_url,
-      file_type: result.file_type,
-      file_size: result.file_size,
-      created_at: result.created_at,
+      id: data.id,
+      session_id: data.session_id,
+      user_id: data.user_id,
+      file_name: data.file_name,
+      file_url: data.file_url,
+      file_type: data.file_type,
+      file_size: data.file_size,
+      created_at: data.created_at,
     };
   }
 
@@ -889,20 +979,25 @@ export class StudySessionService {
     userId: string,
     sessionId: string,
   ): Promise<SessionFileListResponse> {
+    // Verify session exists
     await this.findOne(userId, sessionId);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = (await supabaseAdmin
       .from('session_files')
       .select('*')
       .eq('session_id', sessionId)
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })) as {
+      data: SessionFileDbRow[] | null;
+      error: null;
+    };
 
-    if (error) throw new BadRequestException('Failed to fetch files');
+    if (error) {
+      console.error('Supabase select files error:', error);
+      throw new BadRequestException('Failed to fetch session files');
+    }
 
-    const files: SessionFileResponse[] = (
-      (data as SessionFileDbRow[]) ?? []
-    ).map((file) => ({
+    const files: SessionFileResponse[] = (data ?? []).map((file) => ({
       id: file.id,
       session_id: file.session_id,
       user_id: file.user_id,
@@ -913,22 +1008,27 @@ export class StudySessionService {
       created_at: file.created_at,
     }));
 
-    return { files, total: files.length };
+    return {
+      files,
+      total: files.length,
+    };
   }
 
   async removeFile(
     userId: string,
     fileId: string,
   ): Promise<{ message: string }> {
-    const { data, error: findError } = await supabaseAdmin
+    // Verify file exists and belongs to user
+    const { data: existingFile, error: findError } = (await supabaseAdmin
       .from('session_files')
       .select('*')
       .eq('id', fileId)
       .eq('user_id', userId)
-      .single();
+      .single()) as { data: SessionFileDbRow | null; error: null };
 
-    if (findError || !data)
+    if (findError || !existingFile) {
       throw new NotFoundException('Session file not found');
+    }
 
     const { error } = await supabaseAdmin
       .from('session_files')
@@ -936,22 +1036,11 @@ export class StudySessionService {
       .eq('id', fileId)
       .eq('user_id', userId);
 
-    if (error) throw new BadRequestException('Failed to remove file');
+    if (error) {
+      console.error('Supabase delete file error:', error);
+      throw new BadRequestException('Failed to remove file from session');
+    }
+
     return { message: 'File removed from session successfully' };
   }
-}
-
-/**
- * Helper to map Supabase errors to NestJS Exceptions
- */
-function mapSupabaseError(error: unknown, context: string): never {
-  const err = error as { message?: string; code?: string };
-  console.error(`Supabase error [${context}]:`, err);
-  const message = err?.message || 'Database operation failed';
-
-  if (err?.code === 'PGRST116') {
-    throw new NotFoundException(`${context} not found`);
-  }
-
-  throw new InternalServerErrorException(`${context} failed: ${message}`);
 }
