@@ -19,6 +19,7 @@ import {
   UploadedFile as UploadedFileType,
 } from './file-upload.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { StudySessionService } from '../study-session/study-session.service';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -37,7 +38,10 @@ interface MulterFile {
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class FileUploadController {
-  constructor(private readonly fileUploadService: FileUploadService) {}
+  constructor(
+    private readonly fileUploadService: FileUploadService,
+    private readonly studySessionService: StudySessionService,
+  ) {}
 
   @Post('api/upload')
   @HttpCode(HttpStatus.CREATED)
@@ -46,12 +50,15 @@ export class FileUploadController {
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: MulterFile,
     @Body('folder') folder?: string,
+    @Body('session_id') sessionId?: string,
+    @Body('sessionId') sessionIdAlt?: string,
   ) {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
 
     const userId = req.user.id;
+    const resolvedSessionId = sessionId || sessionIdAlt;
     const result: UploadedFileType = await this.fileUploadService.uploadFile(
       userId,
       {
@@ -60,8 +67,24 @@ export class FileUploadController {
         size: file.size,
         buffer: file.buffer,
       },
-      folder || 'uploads',
+      resolvedSessionId ? `sessions/${resolvedSessionId}` : folder || 'uploads',
     );
+
+    if (resolvedSessionId) {
+      const linkedFile = await this.studySessionService.createFile(userId, {
+        session_id: resolvedSessionId,
+        file_url: result.file_url,
+        file_name: result.file_name,
+        file_type: result.file_type,
+        file_size: result.file_size,
+      });
+
+      return {
+        message: 'File uploaded successfully',
+        document_id: result.id,
+        ...linkedFile,
+      };
+    }
 
     return {
       message: 'File uploaded successfully',
@@ -126,13 +149,18 @@ export class FileUploadController {
       `sessions/${sessionId}`,
     );
 
-    return {
-      message: 'Uploaded to session!',
+    const linkedFile = await this.studySessionService.createFile(req.user.id, {
       session_id: sessionId,
       file_url: result.file_url,
       file_name: result.file_name,
       file_type: result.file_type,
       file_size: result.file_size,
+    });
+
+    return {
+      message: 'Uploaded to session!',
+      document_id: result.id,
+      ...linkedFile,
     };
   }
 }
