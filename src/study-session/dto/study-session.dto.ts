@@ -43,6 +43,7 @@ export interface StudySessionListResponse {
 
 export class CreateSessionNoteDto {
   @IsUUID()
+  @IsOptional()
   @IsNotEmpty({ message: 'Session ID is required' })
   session_id: string;
 
@@ -110,6 +111,7 @@ export interface SessionNoteListResponse {
 // Session File DTOs
 export class CreateSessionFileDto {
   @IsUUID()
+  @IsOptional()
   @IsNotEmpty({ message: 'Session ID is required' })
   session_id: string;
 

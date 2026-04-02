@@ -1,3 +1,5 @@
+
+
 // import 'reflect-metadata';
 // import 'dotenv/config';
 // import { ValidationPipe } from '@nestjs/common';
@@ -7,34 +9,32 @@
 // async function bootstrap() {
 //   const app = await NestFactory.create(AppModule);
 
-//   // Simplified CORS for local development with Expo Go
+//   // Allow connections from your phone
 //   app.enableCors({
-//     origin: true, // This allows any origin to connect during development
+//     origin: '*',
 //     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
 //     credentials: true,
 //   });
 
-//   // ONLY ONE Global Pipe
 //   app.useGlobalPipes(
 //     new ValidationPipe({
 //       whitelist: true,
 //       transform: true,
-//       // Set this to false for now so image uploads don't fail
-//       // if 'avatar' isn't explicitly in your DTO whitelist
 //       forbidNonWhitelisted: false,
 //     }),
 //   );
 
-//   // Listen on 0.0.0.0 to allow your phone (192.168.1.172) to connect
+//   // Listen on 0.0.0.0 is CRITICAL for Expo Go
 //   await app.listen(3000, '0.0.0.0');
 
-//   console.log(`🚀 Server is live on: http://192.168.1.172:3000`);
+//   console.log(`🚀 Server is listening on all interfaces`);
+//   console.log(`📱 For Expo Go, use: http://192.168.1.172:3000`);
 // }
 
 // bootstrap().catch((err) => {
 //   console.error('Failed to start application:', err);
-//   process.exit(1);
 // });
+
 
 import 'reflect-metadata';
 import 'dotenv/config';
@@ -43,15 +43,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  // Create the NestJS application
   const app = await NestFactory.create(AppModule);
 
-  // Allow connections from your phone
+  // 1. ENABLE CORS: This allows your mobile app to talk to the server
   app.enableCors({
-    origin: '*',
+    origin: '*', // Allows all origins (essential for development)
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
 
+  // 2. VALIDATION: Ensures incoming data (like Chat JSON) is formatted correctly
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -60,12 +62,16 @@ async function bootstrap() {
     }),
   );
 
-  // Listen on 0.0.0.0 is CRITICAL for Expo Go
+  // 3. NETWORK BINDING: '0.0.0.0' tells the server to listen to your local Wi-Fi, 
+  // not just your laptop's internal loop.
   await app.listen(3000, '0.0.0.0');
 
+  // Logs to help you verify the connection
+  console.log(`\n--- STUDY-MATE BACKEND STARTED ---`);
   console.log(`🚀 Server is listening on all interfaces`);
   console.log(`📱 For Expo Go, use: http://192.168.1.172:3000`);
+  console.log(`-----------------------------------\n`);
 }
 bootstrap().catch((err) => {
-  console.error('Failed to start application:', err);
+  console.error('CRITICAL: Failed to start application:', err);
 });
