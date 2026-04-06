@@ -40,20 +40,23 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { json } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  // Create the NestJS application
   const app = await NestFactory.create(AppModule);
 
-  // 1. ENABLE CORS: This allows your mobile app to talk to the server
+  // Increase body limit for large file uploads (images, PDFs from mobile)
+  app.use(json({ limit: '50mb' }));
+
+  // 1. ENABLE CORS
   app.enableCors({
-    origin: '*', // Allows all origins (essential for development)
+    origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
 
-  // 2. VALIDATION: Ensures incoming data (like Chat JSON) is formatted correctly
+  // 2. VALIDATION
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -62,14 +65,13 @@ async function bootstrap() {
     }),
   );
 
-  // 3. NETWORK BINDING: '0.0.0.0' tells the server to listen to your local Wi-Fi, 
-  // not just your laptop's internal loop.
+  // 3. NETWORK BINDING
   await app.listen(3000, '0.0.0.0');
 
-  // Logs to help you verify the connection
   console.log(`\n--- STUDY-MATE BACKEND STARTED ---`);
   console.log(`🚀 Server is listening on all interfaces`);
   console.log(`📱 For Expo Go, use: http://192.168.1.172:3000`);
+  console.log(`📁 File upload limit: 50MB`);
   console.log(`-----------------------------------\n`);
 }
 bootstrap().catch((err) => {
