@@ -38,7 +38,22 @@ export class ProcessingService {
     'a pdf file is a digital document format',
   ];
 
+  private readonly imageMimeTypes = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/bmp',
+  ];
+
   constructor(private readonly aiService: AiService) {}
+
+  private isImageFile(fileType: string): boolean {
+    return this.imageMimeTypes.some((type) =>
+      fileType.toLowerCase().includes(type.replace('image/', '')),
+    );
+  }
 
   private normalizeForQualityChecks(text: string): string {
     return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -181,43 +196,33 @@ export class ProcessingService {
       const buffer = await this.downloadFileBuffer(fileUrl);
       let extractedText = '';
 
-      // --- PDF EXTRACTION ---
-      if (fileType.includes('pdf')) {
-        this.logger.log('[AI-Prep] Processing PDF with pdf-parse-fork...');
-        let parserText = '';
-
+      // --- IMAGE EXTRACTION (JPG, PNG, JPEG, WEBP) ---
+      if (this.isImageFile(fileType)) {
+        this.logger.log('[AI-Prep] Processing image with Gemini Vision OCR...');
+        extractedText = await this.aiService.extractTextFromImage(buffer, fileType);
+      }
+      // --- PDF EXTRACTION - ALWAYS USE AI VISION FOR ALL PDFs ---
+      // This ensures scanned/image PDFs are also readable
+      else if (fileType.includes('pdf')) {
+        this.logger.log('[AI-Prep] Processing ALL PDFs with AI Vision (Gemini -> Groq)...');
+        
+        // Try Gemini first
         try {
-          const parsePdf = pdf as PdfParser;
-          const data = await parsePdf(buffer);
-          parserText = this.sanitizeExtractedText(data.text);
-          extractedText = parserText;
-
-          if (this.shouldUsePdfFallback(parserText)) {
-            this.logger.warn(
-              '[AI-Prep] PDF text looks too weak or watermark-heavy. Falling back to Gemini PDF extraction...',
-            );
-            try {
-              extractedText =
-                await this.aiService.extractStudyTextFromPdf(buffer);
-            } catch (fallbackError: unknown) {
-              const fallbackMessage =
-                fallbackError instanceof Error
-                  ? fallbackError.message
-                  : 'Unknown error';
-              this.logger.warn(
-                `[AI-Prep] Gemini/OpenRouter PDF fallback failed: ${fallbackMessage}. Using parser text instead.`,
-              );
-              extractedText = parserText;
-            }
-          }
-        } catch (pdfError) {
-          const message =
-            pdfError instanceof Error ? pdfError.message : 'Unknown error';
-          this.logger.error(`PDF Extraction logic failed: ${message}`);
-          this.logger.warn(
-            '[AI-Prep] Falling back to Gemini PDF extraction after parser failure...',
-          );
           extractedText = await this.aiService.extractStudyTextFromPdf(buffer);
+          this.logger.log('[AI-Prep] Gemini successfully extracted PDF text');
+        } catch (geminiError: unknown) {
+          const geminiMessage = geminiError instanceof Error ? geminiError.message : 'Unknown error';
+          this.logger.warn(`[AI-Prep] Gemini PDF extraction failed: ${geminiMessage}. Trying Groq...`);
+          
+          // Try Groq as backup
+          try {
+            extractedText = await this.extractPdfWithGroq(buffer);
+            this.logger.log('[AI-Prep] Groq successfully extracted PDF text');
+          } catch (groqError: unknown) {
+            const groqMessage = groqError instanceof Error ? groqError.message : 'Unknown error';
+            this.logger.error(`[AI-Prep] Groq also failed: ${groqMessage}`);
+            throw new Error(`All AI providers failed to read this PDF: ${geminiMessage} | ${groqMessage}`);
+          }
         }
       }
       // --- WORD EXTRACTION ---
@@ -298,5 +303,64 @@ export class ProcessingService {
       `[AI-Prep] Content split into ${chunks.length} usable chunks.`,
     );
     return chunks;
+  }
+
+  private async extractPdfWithGroq(pdfBuffer: Buffer): Promise<string> {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      throw new Error('GROQ_API_KEY is not configured');
+    }
+
+    this.logger.log('[AI-Prep] Extracting PDF text with Groq...');
+
+    const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.2-90b-vision-preview',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `You are performing OCR for a study app. Extract ALL visible text from this PDF exactly as it appears. Do not summarize. If no readable text, say: NO_READABLE_TEXT`,
+              },
+              {
+                type: 'image_url',
+                image_url: { url: dataUrl },
+              },
+            ],
+          },
+        ],
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq request failed: ${response.status} - ${errorText}`);
+    }
+
+    const completion = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const extractedText = completion.choices?.[0]?.message?.content?.trim() || '';
+
+    if (!extractedText) {
+      throw new Error('Groq returned empty PDF extraction');
+    }
+
+    if (extractedText.toLowerCase().includes('no_readable_text') || extractedText.toLowerCase().includes('no readable')) {
+      throw new Error('No readable text found in PDF');
+    }
+
+    this.logger.log(`[AI-Prep] Groq PDF extraction complete: ${extractedText.length} characters`);
+    return extractedText;
   }
 }

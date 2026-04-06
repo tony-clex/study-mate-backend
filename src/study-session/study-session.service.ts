@@ -604,6 +604,8 @@ export class StudySessionService {
       throw new BadRequestException('Title cannot be empty');
     }
 
+    console.log(`[StudySession] create called - userId: ${userId}, title: ${title}`);
+
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .insert({
@@ -612,9 +614,10 @@ export class StudySessionService {
         subject: subject?.trim() || null,
       })
       .select()
-      .single()) as { data: StudySessionDbRow | null; error: null };
+      .single()) as { data: StudySessionDbRow | null; error: any };
 
     if (error) {
+      console.log(`[StudySession] create error: ${error.message}`);
       mapSupabaseError(error, 'create session');
     }
 
@@ -624,6 +627,7 @@ export class StudySessionService {
       );
     }
 
+    console.log(`[StudySession] created - sessionId: ${data.id}`);
     return {
       id: data.id,
       user_id: data.user_id,
@@ -634,18 +638,23 @@ export class StudySessionService {
   }
 
   async findAll(userId: string): Promise<StudySessionListResponse> {
+    console.log(`[StudySession] findAll called - userId: ${userId}`);
+    
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })) as {
       data: StudySessionDbRow[] | null;
-      error: null;
+      error: any;
     };
 
     if (error) {
+      console.log(`[StudySession] findAll error: ${error.message}`);
       mapSupabaseError(error, 'fetch sessions');
     }
+
+    console.log(`[StudySession] findAll returned ${data?.length ?? 0} sessions`);
 
     const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
       id: session.id,
@@ -665,12 +674,21 @@ export class StudySessionService {
     userId: string,
     sessionId: string,
   ): Promise<StudySessionResponse> {
+    console.log(`[StudySession] findOne called - userId: ${userId}, sessionId: ${sessionId}`);
+    
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('id', sessionId)
       .eq('user_id', userId)
-      .single()) as { data: StudySessionDbRow | null; error: null };
+      .single()) as { data: StudySessionDbRow | null; error: any };
+
+    if (error) {
+      console.log(`[StudySession] findOne error: ${error.message}`);
+    }
+    if (!data) {
+      console.log(`[StudySession] findOne - no data returned for sessionId: ${sessionId}, userId: ${userId}`);
+    }
 
     if (error || !data) {
       throw new NotFoundException('Study session not found');
