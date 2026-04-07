@@ -34,6 +34,7 @@ import { FileUploadModule } from './file-upload/file-upload.module';
 import { ProfileModule } from './profile/profile.module';
 import { DocumentsModule } from './documents/documents.module';
 import { ChatModule } from './chat/chat.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { ChatModule } from './chat/chat.module';
     FileUploadModule,
     ProfileModule,
     DocumentsModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],

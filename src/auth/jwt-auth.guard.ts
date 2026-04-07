@@ -60,14 +60,12 @@
 //   }
 // }
 
-
 import {
   Injectable,
   CanActivate,
   ExecutionContext,
   UnauthorizedException,
   Logger,
-  Inject,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtService } from '@nestjs/jwt';
@@ -124,7 +122,8 @@ export class JwtAuthGuard implements CanActivate {
 
       return true;
     } catch (err) {
-      this.logger.error(`Authentication failed: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Authentication failed: ${message}`);
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

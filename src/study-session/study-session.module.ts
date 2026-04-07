@@ -31,6 +31,11 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
     CollaborationService,
     JwtAuthGuard,
   ],
-  exports: [StudySessionService, SpacedCardService, ProgressService, CollaborationService],
+  exports: [
+    StudySessionService,
+    SpacedCardService,
+    ProgressService,
+    CollaborationService,
+  ],
 })
 export class StudySessionModule {}

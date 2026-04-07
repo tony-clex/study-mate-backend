@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import {
   CreateCollaboratorDto,
@@ -18,6 +23,10 @@ interface CollaboratorDbRow {
   updated_at: string;
 }
 
+interface SupabaseError {
+  message: string;
+}
+
 @Injectable()
 export class CollaborationService {
   private readonly logger = new Logger(CollaborationService.name);
@@ -30,16 +39,25 @@ export class CollaborationService {
 
     const session = await this.getSessionById(sessionId);
     if (session.user_id !== ownerId) {
-      throw new BadRequestException('You can only add collaborators to your own sessions');
+      throw new BadRequestException(
+        'You can only add collaborators to your own sessions',
+      );
     }
 
     if (session.user_id === collaboratorId) {
-      throw new BadRequestException('You cannot add yourself as a collaborator');
+      throw new BadRequestException(
+        'You cannot add yourself as a collaborator',
+      );
     }
 
-    const existingCollaborator = await this.findCollaborator(sessionId, collaboratorId);
+    const existingCollaborator = await this.findCollaborator(
+      sessionId,
+      collaboratorId,
+    );
     if (existingCollaborator) {
-      throw new BadRequestException('User is already a collaborator on this session');
+      throw new BadRequestException(
+        'User is already a collaborator on this session',
+      );
     }
 
     const { data, error } = (await supabaseAdmin
@@ -52,7 +70,7 @@ export class CollaborationService {
         status: 'pending',
       })
       .select()
-      .single()) as { data: CollaboratorDbRow | null; error: any };
+      .single()) as { data: CollaboratorDbRow | null; error: SupabaseError };
 
     if (error) {
       this.logger.error(`Failed to add collaborator: ${error.message}`);
@@ -71,8 +89,10 @@ export class CollaborationService {
     sessionId: string,
   ): Promise<CollaboratorListResponse> {
     const session = await this.getSessionById(sessionId);
-    const hasAccess = session.user_id === userId || await this.isCollaborator(userId, sessionId);
-    
+    const hasAccess =
+      session.user_id === userId ||
+      (await this.isCollaborator(userId, sessionId));
+
     if (!hasAccess) {
       throw new NotFoundException('Session not found');
     }
@@ -83,7 +103,7 @@ export class CollaborationService {
       .eq('session_id', sessionId)
       .order('created_at', { ascending: false })) as {
       data: CollaboratorDbRow[] | null;
-      error: any;
+      error: SupabaseError;
     };
 
     if (error) {
@@ -104,14 +124,19 @@ export class CollaborationService {
     sessionId: string,
     updateDto: UpdateCollaboratorStatusDto,
   ): Promise<CollaboratorResponse> {
-    const collaborator = await this.findCollaboratorBySessionAndUser(sessionId, userId);
+    const collaborator = await this.findCollaboratorBySessionAndUser(
+      sessionId,
+      userId,
+    );
 
     if (!collaborator) {
       throw new NotFoundException('Collaboration invite not found');
     }
 
     if (collaborator.status !== 'pending') {
-      throw new BadRequestException('Collaboration status has already been updated');
+      throw new BadRequestException(
+        'Collaboration status has already been updated',
+      );
     }
 
     const { data, error } = (await supabaseAdmin
@@ -122,7 +147,7 @@ export class CollaborationService {
       })
       .eq('id', collaborator.id)
       .select()
-      .single()) as { data: CollaboratorDbRow | null; error: any };
+      .single()) as { data: CollaboratorDbRow | null; error: SupabaseError };
 
     if (error || !data) {
       throw new BadRequestException('Failed to update collaboration status');
@@ -138,7 +163,9 @@ export class CollaborationService {
   ): Promise<{ message: string }> {
     const session = await this.getSessionById(sessionId);
     if (session.user_id !== ownerId) {
-      throw new BadRequestException('You can only remove collaborators from your own sessions');
+      throw new BadRequestException(
+        'You can only remove collaborators from your own sessions',
+      );
     }
 
     const collaborator = await this.findCollaborator(sessionId, collaboratorId);
@@ -162,7 +189,8 @@ export class CollaborationService {
   async getSharedSessions(userId: string): Promise<any[]> {
     const { data, error } = (await supabaseAdmin
       .from('session_collaborators')
-      .select(`
+      .select(
+        `
         id,
         role,
         status,
@@ -174,13 +202,14 @@ export class CollaborationService {
           created_at,
           user_id
         )
-      `)
+      `,
+      )
       .eq('collaborator_id', userId)
       .eq('status', 'accepted')
       .order('created_at', { ascending: false })) as {
-        data: any[] | null;
-        error: any;
-      };
+      data: any[] | null;
+      error: SupabaseError;
+    };
 
     if (error) {
       this.logger.error(`Failed to fetch shared sessions: ${error.message}`);
@@ -197,9 +226,9 @@ export class CollaborationService {
       .eq('collaborator_id', userId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })) as {
-        data: CollaboratorDbRow[] | null;
-        error: any;
-      };
+      data: CollaboratorDbRow[] | null;
+      error: SupabaseError;
+    };
 
     if (error) {
       this.logger.error(`Failed to fetch pending invites: ${error.message}`);
@@ -219,7 +248,7 @@ export class CollaborationService {
       .from('study_sessions')
       .select('*')
       .eq('id', sessionId)
-      .single()) as { data: any; error: any };
+      .single()) as { data: any; error: SupabaseError };
 
     if (error || !data) {
       throw new NotFoundException('Study session not found');
@@ -249,7 +278,10 @@ export class CollaborationService {
     return this.findCollaborator(sessionId, userId);
   }
 
-  private async isCollaborator(userId: string, sessionId: string): Promise<boolean> {
+  private async isCollaborator(
+    userId: string,
+    sessionId: string,
+  ): Promise<boolean> {
     const collaborator = await this.findCollaborator(sessionId, userId);
     return collaborator !== null && collaborator.status === 'accepted';
   }

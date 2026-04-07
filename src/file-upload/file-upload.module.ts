@@ -23,7 +23,6 @@
 // })
 // export class FileUploadModule {}
 
-
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -34,14 +33,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { StudySessionModule } from '../study-session/study-session.module';
 import { DocumentsModule } from '../documents/documents.module';
 // 1. IMPORT THE AI MODULE HERE
-import { AiModule } from '../ai/ai.module'; 
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
     StudySessionModule,
     DocumentsModule,
     // 2. ADD IT TO THIS ARRAY
-    AiModule, 
+    AiModule,
     MulterModule.register({
       storage: memoryStorage(),
       limits: {

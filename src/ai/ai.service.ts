@@ -180,9 +180,24 @@ INSTRUCTIONS:
 - Do not talk about API limitations or provider internals`;
 
     const providers = [
-      { name: 'OpenRouter', fn: () => this.answerQuestionAboutPdfWithOpenRouter(pdfBuffer, prompt, fileName) },
-      { name: 'Gemini', fn: () => this.answerQuestionAboutPdfWithGemini(pdfBuffer, prompt) },
-      { name: 'Groq', fn: () => this.answerQuestionAboutPdfWithGroq(pdfBuffer, question, fileName) },
+      {
+        name: 'OpenRouter',
+        fn: () =>
+          this.answerQuestionAboutPdfWithOpenRouter(
+            pdfBuffer,
+            prompt,
+            fileName,
+          ),
+      },
+      {
+        name: 'Gemini',
+        fn: () => this.answerQuestionAboutPdfWithGemini(pdfBuffer, prompt),
+      },
+      {
+        name: 'Groq',
+        fn: () =>
+          this.answerQuestionAboutPdfWithGroq(pdfBuffer, question, fileName),
+      },
     ];
 
     const errors: string[] = [];
@@ -191,16 +206,23 @@ INSTRUCTIONS:
         this.logger.log(`[AiService] Trying ${provider.name} for PDF Q&A...`);
         return await provider.fn();
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
         errors.push(`${provider.name}: ${message}`);
-        this.logger.warn(`[AiService] ${provider.name} PDF Q&A failed: ${message}. Trying next...`);
+        this.logger.warn(
+          `[AiService] ${provider.name} PDF Q&A failed: ${message}. Trying next...`,
+        );
       }
     }
 
     throw new Error(`All PDF Q&A providers failed: ${errors.join(' | ')}`);
   }
 
-  private async answerQuestionAboutPdfWithGroq(pdfBuffer: Buffer, question: string, fileName: string): Promise<string> {
+  private async answerQuestionAboutPdfWithGroq(
+    pdfBuffer: Buffer,
+    question: string,
+    fileName: string,
+  ): Promise<string> {
     const groqApiKey = process.env.GROQ_API_KEY;
     if (!groqApiKey) {
       throw new Error('GROQ_API_KEY is not configured');
@@ -209,30 +231,38 @@ INSTRUCTIONS:
     this.logger.log('[AiService] Answering PDF question with Groq...');
 
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${groqApiKey}`,
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.2-90b-vision-preview',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `You are a brilliant study assistant. Read this PDF and answer the question.\n\nFile: ${fileName}\n\nQuestion: ${question}\n\nAnswer from the PDF contents:`,
+                },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+          temperature: 0.7,
+        }),
       },
-      body: JSON.stringify({
-        model: 'llama-3.2-90b-vision-preview',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: `You are a brilliant study assistant. Read this PDF and answer the question.\n\nFile: ${fileName}\n\nQuestion: ${question}\n\nAnswer from the PDF contents:` },
-              { type: 'image_url', image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-        temperature: 0.7,
-      }),
-    });
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Groq request failed with ${response.status}: ${errorText}`);
+      throw new Error(
+        `Groq request failed with ${response.status}: ${errorText}`,
+      );
     }
 
     const completion = (await response.json()) as {
@@ -244,7 +274,9 @@ INSTRUCTIONS:
       throw new Error('Groq returned empty PDF answer');
     }
 
-    this.logger.log(`[AiService] Groq PDF answer complete: ${answer.length} characters`);
+    this.logger.log(
+      `[AiService] Groq PDF answer complete: ${answer.length} characters`,
+    );
     return answer;
   }
 
@@ -252,7 +284,9 @@ INSTRUCTIONS:
     pdfBuffer: Buffer,
     prompt: string,
   ): Promise<string> {
-    this.logger.log('[AiService] Extracting study text from PDF with Gemini...');
+    this.logger.log(
+      '[AiService] Extracting study text from PDF with Gemini...',
+    );
 
     const model = this.genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-001',
@@ -293,42 +327,45 @@ INSTRUCTIONS:
     );
 
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openRouterApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3-8b-instruct',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt,
-              },
-              {
-                type: 'file',
-                file: {
-                  filename: 'study-material.pdf',
-                  file_data: dataUrl,
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openRouterApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-3-8b-instruct',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: prompt,
                 },
-              },
-            ],
-          },
-        ],
-        plugins: [
-          {
-            id: 'file-parser',
-            pdf: {
-              engine: 'cloudflare-ai',
+                {
+                  type: 'file',
+                  file: {
+                    filename: 'study-material.pdf',
+                    file_data: dataUrl,
+                  },
+                },
+              ],
             },
-          },
-        ],
-      }),
-    });
+          ],
+          plugins: [
+            {
+              id: 'file-parser',
+              pdf: {
+                engine: 'cloudflare-ai',
+              },
+            },
+          ],
+        }),
+      },
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -345,7 +382,8 @@ INSTRUCTIONS:
       }>;
     };
 
-    const extractedText = completion.choices?.[0]?.message?.content?.trim() || '';
+    const extractedText =
+      completion.choices?.[0]?.message?.content?.trim() || '';
 
     if (!extractedText) {
       throw new Error('OpenRouter returned empty PDF extraction output.');
@@ -514,7 +552,10 @@ Be thorough and descriptive.`;
    * Handles photos of documents, screenshots, etc.
    * Falls back to OpenRouter if Gemini fails.
    */
-  async extractTextFromImage(imageBuffer: Buffer, mimeType: string): Promise<string> {
+  async extractTextFromImage(
+    imageBuffer: Buffer,
+    mimeType: string,
+  ): Promise<string> {
     const prompt = `You are performing OCR (Optical Character Recognition) for a study app.
 
 Your task is to extract ALL visible text from this image and transcribe it exactly as it appears.
@@ -528,22 +569,44 @@ Rules:
 - Ignore any watermarks, logos, or decorative elements that aren't meaningful text`;
 
     try {
-      return await this.extractTextFromImageWithGemini(imageBuffer, mimeType, prompt);
+      return await this.extractTextFromImageWithGemini(
+        imageBuffer,
+        mimeType,
+        prompt,
+      );
     } catch (geminiError: unknown) {
-      const geminiMessage = geminiError instanceof Error ? geminiError.message : 'Unknown error';
-      this.logger.warn(`[AiService] Gemini image extraction failed: ${geminiMessage}. Trying OpenRouter...`);
+      const geminiMessage =
+        geminiError instanceof Error ? geminiError.message : 'Unknown error';
+      this.logger.warn(
+        `[AiService] Gemini image extraction failed: ${geminiMessage}. Trying OpenRouter...`,
+      );
 
       try {
-        return await this.extractTextFromImageWithOpenRouter(imageBuffer, mimeType, prompt);
+        return await this.extractTextFromImageWithOpenRouter(
+          imageBuffer,
+          mimeType,
+          prompt,
+        );
       } catch (openrouterError: unknown) {
-        const openrouterMessage = openrouterError instanceof Error ? openrouterError.message : 'Unknown error';
-        this.logger.error(`[AiService] OpenRouter image extraction failed: ${openrouterMessage}`);
-        throw new Error(`Failed to extract text from image: ${geminiMessage} | ${openrouterMessage}`);
+        const openrouterMessage =
+          openrouterError instanceof Error
+            ? openrouterError.message
+            : 'Unknown error';
+        this.logger.error(
+          `[AiService] OpenRouter image extraction failed: ${openrouterMessage}`,
+        );
+        throw new Error(
+          `Failed to extract text from image: ${geminiMessage} | ${openrouterMessage}`,
+        );
       }
     }
   }
 
-  private async extractTextFromImageWithGemini(imageBuffer: Buffer, mimeType: string, prompt: string): Promise<string> {
+  private async extractTextFromImageWithGemini(
+    imageBuffer: Buffer,
+    mimeType: string,
+    prompt: string,
+  ): Promise<string> {
     this.logger.log('[AiService] Extracting image text with Gemini...');
 
     const model = this.genAI.getGenerativeModel({
@@ -568,11 +631,17 @@ Rules:
       throw new Error('No readable text found in the image');
     }
 
-    this.logger.log(`[AiService] Gemini image extraction complete: ${extractedText.length} characters`);
+    this.logger.log(
+      `[AiService] Gemini image extraction complete: ${extractedText.length} characters`,
+    );
     return extractedText;
   }
 
-  private async extractTextFromImageWithOpenRouter(imageBuffer: Buffer, mimeType: string, prompt: string): Promise<string> {
+  private async extractTextFromImageWithOpenRouter(
+    imageBuffer: Buffer,
+    mimeType: string,
+    prompt: string,
+  ): Promise<string> {
     const openRouterApiKey = process.env.OPENROUTER_API_KEY;
     if (!openRouterApiKey) {
       throw new Error('OPENROUTER_API_KEY is not configured');
@@ -581,36 +650,42 @@ Rules:
     this.logger.log('[AiService] Extracting image text with OpenRouter...');
 
     const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openRouterApiKey}`,
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openRouterApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-3-8b-instruct',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3-8b-instruct',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-      }),
-    });
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`OpenRouter request failed with ${response.status}: ${errorText}`);
+      throw new Error(
+        `OpenRouter request failed with ${response.status}: ${errorText}`,
+      );
     }
 
     const completion = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
 
-    const extractedText = completion.choices?.[0]?.message?.content?.trim() || '';
+    const extractedText =
+      completion.choices?.[0]?.message?.content?.trim() || '';
 
     if (!extractedText) {
       throw new Error('OpenRouter returned empty image extraction');
@@ -620,7 +695,9 @@ Rules:
       throw new Error('No readable text found in the image');
     }
 
-    this.logger.log(`[AiService] OpenRouter image extraction complete: ${extractedText.length} characters`);
+    this.logger.log(
+      `[AiService] OpenRouter image extraction complete: ${extractedText.length} characters`,
+    );
     return extractedText;
   }
 }

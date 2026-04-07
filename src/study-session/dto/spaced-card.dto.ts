@@ -1,4 +1,11 @@
-import { IsString, IsUUID, IsNumber, IsOptional, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsUUID,
+  IsNumber,
+  IsOptional,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class CreateSpacedCardDto {
   @IsUUID()
