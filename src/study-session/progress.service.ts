@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import {
   StudyProgressResponse,
@@ -86,10 +86,15 @@ export class ProgressService {
     const totalCards = cardsData?.total ?? 0;
 
     const totalStudyTimeMinutes =
-      progressData?.reduce((sum, p) => sum + p.total_study_time_minutes, 0) ?? 0;
+      progressData?.reduce((sum, p) => sum + p.total_study_time_minutes, 0) ??
+      0;
 
-    const { currentStreak, longestStreak, cardsDueToday, cardsReviewedThisWeek } =
-      await this.calculateStreaksAndReviewStats(userId);
+    const {
+      currentStreak,
+      longestStreak,
+      cardsDueToday,
+      cardsReviewedThisWeek,
+    } = await this.calculateStreaksAndReviewStats(userId);
 
     const averageSessionLength =
       totalSessions > 0 ? Math.round(totalStudyTimeMinutes / totalSessions) : 0;
@@ -115,50 +120,48 @@ export class ProgressService {
   }
 
   private async getTotalSessions(userId: string): Promise<{ total: number }> {
-    const { data, error } = (await supabaseAdmin
+    const { data } = (await supabaseAdmin
       .from('study_sessions')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)) as { data: unknown[] | null; error: null };
+      .eq('user_id', userId)) as { data: unknown[] | null };
 
     return { total: data?.length ?? 0 };
   }
 
   private async getTotalNotes(userId: string): Promise<{ total: number }> {
-    const { data, error } = (await supabaseAdmin
+    const { data } = (await supabaseAdmin
       .from('session_notes')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)) as { data: unknown[] | null; error: null };
+      .eq('user_id', userId)) as { data: unknown[] | null };
 
     return { total: data?.length ?? 0 };
   }
 
   private async getTotalFiles(userId: string): Promise<{ total: number }> {
-    const { data, error } = (await supabaseAdmin
+    const { data } = (await supabaseAdmin
       .from('session_files')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)) as { data: unknown[] | null; error: null };
+      .eq('user_id', userId)) as { data: unknown[] | null };
 
     return { total: data?.length ?? 0 };
   }
 
   private async getTotalCards(userId: string): Promise<{ total: number }> {
-    const { data, error } = (await supabaseAdmin
+    const { data } = (await supabaseAdmin
       .from('spaced_cards')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)) as { data: unknown[] | null; error: null };
+      .eq('user_id', userId)) as { data: unknown[] | null };
 
     return { total: data?.length ?? 0 };
   }
 
-  private async getProgressData(
-    userId: string,
-  ): Promise<StudyProgressDbRow[]> {
-    const { data, error } = (await supabaseAdmin
+  private async getProgressData(userId: string): Promise<StudyProgressDbRow[]> {
+    const { data } = (await supabaseAdmin
       .from('study_progress')
       .select('*')
       .eq('user_id', userId)
       .order('date', { ascending: false })
-      .limit(30)) as { data: StudyProgressDbRow[] | null; error: null };
+      .limit(30)) as { data: StudyProgressDbRow[] | null };
 
     return data ?? [];
   }
@@ -202,7 +205,12 @@ export class ProgressService {
 
     const cardsReviewedThisWeek = reviewedThisWeek?.length ?? 0;
 
-    return { currentStreak, longestStreak, cardsDueToday, cardsReviewedThisWeek };
+    return {
+      currentStreak,
+      longestStreak,
+      cardsDueToday,
+      cardsReviewedThisWeek,
+    };
   }
 
   private async getWeeklyProgress(userId: string) {
@@ -268,7 +276,8 @@ export class ProgressService {
 
     switch (activity) {
       case 'session':
-        updateData.study_sessions_count = (existing?.study_sessions_count ?? 0) + 1;
+        updateData.study_sessions_count =
+          (existing?.study_sessions_count ?? 0) + 1;
         updateData.total_study_time_minutes =
           (existing?.total_study_time_minutes ?? 0) + durationMinutes;
         break;

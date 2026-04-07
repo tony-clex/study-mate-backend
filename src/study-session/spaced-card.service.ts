@@ -1,6 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
-import { CreateSpacedCardDto, ReviewCardDto, SpacedCardResponse, SpacedCardListResponse } from './dto/spaced-card.dto';
+import {
+  CreateSpacedCardDto,
+  ReviewCardDto,
+  SpacedCardResponse,
+  SpacedCardListResponse,
+} from './dto/spaced-card.dto';
 
 interface SpacedCardDbRow {
   id: string;
@@ -18,11 +28,18 @@ interface SpacedCardDbRow {
   updated_at: string;
 }
 
+interface SupabaseError {
+  message: string;
+}
+
 @Injectable()
 export class SpacedCardService {
   private readonly logger = new Logger(SpacedCardService.name);
 
-  async create(userId: string, createDto: CreateSpacedCardDto): Promise<SpacedCardResponse> {
+  async create(
+    userId: string,
+    createDto: CreateSpacedCardDto,
+  ): Promise<SpacedCardResponse> {
     const { sessionId, noteId, frontText, backText } = createDto;
 
     const { data, error } = (await supabaseAdmin
@@ -39,7 +56,7 @@ export class SpacedCardService {
         next_review_date: new Date().toISOString(),
       })
       .select()
-      .single()) as { data: SpacedCardDbRow | null; error: any };
+      .single()) as { data: SpacedCardDbRow | null; error: SupabaseError };
 
     if (error) {
       this.logger.error(`Failed to create card: ${error.message}`);
@@ -53,7 +70,10 @@ export class SpacedCardService {
     return this.mapToResponse(data);
   }
 
-  async findAll(userId: string, sessionId?: string): Promise<SpacedCardListResponse> {
+  async findAll(
+    userId: string,
+    sessionId?: string,
+  ): Promise<SpacedCardListResponse> {
     let query = supabaseAdmin
       .from('spaced_cards')
       .select('*')
@@ -95,7 +115,7 @@ export class SpacedCardService {
       .lte('next_review_date', today)
       .order('next_review_date', { ascending: true })) as {
       data: SpacedCardDbRow[] | null;
-      error: any;
+      error: SupabaseError;
     };
 
     if (error) {
@@ -118,7 +138,7 @@ export class SpacedCardService {
       .select('*')
       .eq('id', cardId)
       .eq('user_id', userId)
-      .single()) as { data: SpacedCardDbRow | null; error: any };
+      .single()) as { data: SpacedCardDbRow | null; error: SupabaseError };
 
     if (error || !data) {
       throw new NotFoundException('Spaced card not found');
@@ -157,7 +177,7 @@ export class SpacedCardService {
       .eq('id', cardId)
       .eq('user_id', userId)
       .select()
-      .single()) as { data: SpacedCardDbRow | null; error: any };
+      .single()) as { data: SpacedCardDbRow | null; error: SupabaseError };
 
     if (error || !data) {
       throw new BadRequestException('Failed to update spaced card');
@@ -166,7 +186,11 @@ export class SpacedCardService {
     return this.mapToResponse(data);
   }
 
-  async review(userId: string, cardId: string, reviewDto: ReviewCardDto): Promise<SpacedCardResponse> {
+  async review(
+    userId: string,
+    cardId: string,
+    reviewDto: ReviewCardDto,
+  ): Promise<SpacedCardResponse> {
     const card = await this.findOne(userId, cardId);
     const { quality } = reviewDto;
 
@@ -193,7 +217,7 @@ export class SpacedCardService {
       .eq('id', cardId)
       .eq('user_id', userId)
       .select()
-      .single()) as { data: SpacedCardDbRow | null; error: any };
+      .single()) as { data: SpacedCardDbRow | null; error: SupabaseError };
 
     if (error || !data) {
       throw new BadRequestException('Failed to review card');
@@ -208,7 +232,8 @@ export class SpacedCardService {
     currentRepetitions: number,
     quality: number,
   ): { easeFactor: number; intervalDays: number; repetitions: number } {
-    let newEaseFactor = currentEaseFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    let newEaseFactor =
+      currentEaseFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
     newEaseFactor = Math.max(1.3, newEaseFactor);
 
     let newInterval: number;

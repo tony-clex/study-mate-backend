@@ -5,14 +5,7 @@ import {
 } from '@nestjs/common';
 import * as mammoth from 'mammoth';
 import axios from 'axios';
-import pdf from 'pdf-parse-fork';
 import { AiService } from '../ai/ai.service';
-
-interface PdfParseResult {
-  text: string;
-}
-
-type PdfParser = (buffer: Buffer) => Promise<PdfParseResult>;
 
 @Injectable()
 export class ProcessingService {
@@ -164,9 +157,7 @@ export class ProcessingService {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`[AI-Prep] Direct PDF Q&A Failure: ${message}`);
-      throw new InternalServerErrorException(
-        `Document Q&A Error: ${message}`,
-      );
+      throw new InternalServerErrorException(`Document Q&A Error: ${message}`);
     }
   }
 
@@ -199,29 +190,42 @@ export class ProcessingService {
       // --- IMAGE EXTRACTION (JPG, PNG, JPEG, WEBP) ---
       if (this.isImageFile(fileType)) {
         this.logger.log('[AI-Prep] Processing image with Gemini Vision OCR...');
-        extractedText = await this.aiService.extractTextFromImage(buffer, fileType);
+        extractedText = await this.aiService.extractTextFromImage(
+          buffer,
+          fileType,
+        );
       }
       // --- PDF EXTRACTION - ALWAYS USE AI VISION FOR ALL PDFs ---
       // This ensures scanned/image PDFs are also readable
       else if (fileType.includes('pdf')) {
-        this.logger.log('[AI-Prep] Processing ALL PDFs with AI Vision (Gemini -> Groq)...');
-        
+        this.logger.log(
+          '[AI-Prep] Processing ALL PDFs with AI Vision (Gemini -> Groq)...',
+        );
+
         // Try Gemini first
         try {
           extractedText = await this.aiService.extractStudyTextFromPdf(buffer);
           this.logger.log('[AI-Prep] Gemini successfully extracted PDF text');
         } catch (geminiError: unknown) {
-          const geminiMessage = geminiError instanceof Error ? geminiError.message : 'Unknown error';
-          this.logger.warn(`[AI-Prep] Gemini PDF extraction failed: ${geminiMessage}. Trying Groq...`);
-          
+          const geminiMessage =
+            geminiError instanceof Error
+              ? geminiError.message
+              : 'Unknown error';
+          this.logger.warn(
+            `[AI-Prep] Gemini PDF extraction failed: ${geminiMessage}. Trying Groq...`,
+          );
+
           // Try Groq as backup
           try {
             extractedText = await this.extractPdfWithGroq(buffer);
             this.logger.log('[AI-Prep] Groq successfully extracted PDF text');
           } catch (groqError: unknown) {
-            const groqMessage = groqError instanceof Error ? groqError.message : 'Unknown error';
+            const groqMessage =
+              groqError instanceof Error ? groqError.message : 'Unknown error';
             this.logger.error(`[AI-Prep] Groq also failed: ${groqMessage}`);
-            throw new Error(`All AI providers failed to read this PDF: ${geminiMessage} | ${groqMessage}`);
+            throw new Error(
+              `All AI providers failed to read this PDF: ${geminiMessage} | ${groqMessage}`,
+            );
           }
         }
       }
@@ -314,32 +318,35 @@ export class ProcessingService {
     this.logger.log('[AI-Prep] Extracting PDF text with Groq...');
 
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${groqApiKey}`,
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.2-90b-vision-preview',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `You are performing OCR for a study app. Extract ALL visible text from this PDF exactly as it appears. Do not summarize. If no readable text, say: NO_READABLE_TEXT`,
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: dataUrl },
+                },
+              ],
+            },
+          ],
+          temperature: 0.1,
+        }),
       },
-      body: JSON.stringify({
-        model: 'llama-3.2-90b-vision-preview',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `You are performing OCR for a study app. Extract ALL visible text from this PDF exactly as it appears. Do not summarize. If no readable text, say: NO_READABLE_TEXT`,
-              },
-              {
-                type: 'image_url',
-                image_url: { url: dataUrl },
-              },
-            ],
-          },
-        ],
-        temperature: 0.1,
-      }),
-    });
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -350,17 +357,23 @@ export class ProcessingService {
       choices?: Array<{ message?: { content?: string } }>;
     };
 
-    const extractedText = completion.choices?.[0]?.message?.content?.trim() || '';
+    const extractedText =
+      completion.choices?.[0]?.message?.content?.trim() || '';
 
     if (!extractedText) {
       throw new Error('Groq returned empty PDF extraction');
     }
 
-    if (extractedText.toLowerCase().includes('no_readable_text') || extractedText.toLowerCase().includes('no readable')) {
+    if (
+      extractedText.toLowerCase().includes('no_readable_text') ||
+      extractedText.toLowerCase().includes('no readable')
+    ) {
       throw new Error('No readable text found in PDF');
     }
 
-    this.logger.log(`[AI-Prep] Groq PDF extraction complete: ${extractedText.length} characters`);
+    this.logger.log(
+      `[AI-Prep] Groq PDF extraction complete: ${extractedText.length} characters`,
+    );
     return extractedText;
   }
 }

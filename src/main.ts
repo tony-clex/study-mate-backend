@@ -1,5 +1,3 @@
-
-
 // import 'reflect-metadata';
 // import 'dotenv/config';
 // import { ValidationPipe } from '@nestjs/common';
@@ -34,7 +32,6 @@
 // bootstrap().catch((err) => {
 //   console.error('Failed to start application:', err);
 // });
-
 
 import 'reflect-metadata';
 import 'dotenv/config';

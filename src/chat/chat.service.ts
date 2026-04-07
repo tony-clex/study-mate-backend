@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import Groq from 'groq-sdk';
 import OpenAI from 'openai';
 import { ProcessingService } from '../documents/processing.service';
+import { AiService } from '../ai/ai.service';
 import { supabaseAdmin } from '../config/supabase.client';
 
 interface MatchedChunk {
@@ -80,7 +81,10 @@ export class ChatService {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  constructor(private readonly processingService: ProcessingService) {}
+  constructor(
+    private readonly processingService: ProcessingService,
+    private readonly aiService: AiService,
+  ) {}
 
   private hasExplicitFileContext(input: ChatQuestionInput): boolean {
     return Boolean(
@@ -136,16 +140,16 @@ export class ChatService {
               error: Error | null;
             })
           : ((await supabaseAdmin
-            .from('session_files')
-            .select('file_url, file_name')
-            .eq('user_id', userId)
-            .eq('session_id', sessionId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()) as {
-            data: SessionFileLookup | null;
-            error: Error | null;
-          });
+              .from('session_files')
+              .select('file_url, file_name')
+              .eq('user_id', userId)
+              .eq('session_id', sessionId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()) as {
+              data: SessionFileLookup | null;
+              error: Error | null;
+            });
 
       if (sessionFileResult.error) {
         this.logger.warn(
@@ -329,9 +333,9 @@ export class ChatService {
     try {
       const extractedText =
         await this.processingService.extractTextForQuestionAnswering(
-        document.file_url,
-        document.file_type,
-      );
+          document.file_url,
+          document.file_type,
+        );
 
       const context = extractedText.slice(0, 12000);
       const prompt = `
@@ -357,9 +361,7 @@ export class ChatService {
       return await this.generateWithFailover(prompt);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.warn(
-        `[Chat] Direct document explanation failed: ${message}`,
-      );
+      this.logger.warn(`[Chat] Direct document explanation failed: ${message}`);
 
       if (document.file_type.includes('pdf')) {
         try {
@@ -375,9 +377,7 @@ export class ChatService {
           };
         } catch (pdfQaError: unknown) {
           const pdfQaMessage =
-            pdfQaError instanceof Error
-              ? pdfQaError.message
-              : 'Unknown error';
+            pdfQaError instanceof Error ? pdfQaError.message : 'Unknown error';
           this.logger.warn(
             `[Chat] Direct PDF Q&A fallback failed: ${pdfQaMessage}`,
           );
@@ -446,7 +446,7 @@ export class ChatService {
   private async generateWithOpenRouter(prompt: string): Promise<string> {
     const completion = await this.openai.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'meta-llama/llama-3-8b-instruct',
+      model: 'google/gemini-flash-1.5',
     });
     return completion.choices[0]?.message?.content || '';
   }
@@ -480,7 +480,8 @@ export class ChatService {
         );
         return { answer, provider: provider.name };
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
         failures.push(`${provider.name}: ${message}`);
         this.logger.warn(
           `[Chat] ${provider.name} failed: ${message}. Trying next provider...`,
@@ -491,7 +492,9 @@ export class ChatService {
     throw new Error(failures.join(' | '));
   }
 
-  private async createQueryEmbedding(question: string): Promise<number[] | null> {
+  private async createQueryEmbedding(
+    question: string,
+  ): Promise<number[] | null> {
     try {
       const model = this.genAI.getGenerativeModel({
         model: 'gemini-embedding-001',
@@ -541,7 +544,11 @@ export class ChatService {
 
       const queryEmbedding = await this.createQueryEmbedding(question);
       const rawChunks = queryEmbedding
-        ? await this.findRelevantChunks(userId, queryEmbedding, resolvedDocumentId)
+        ? await this.findRelevantChunks(
+            userId,
+            queryEmbedding,
+            resolvedDocumentId,
+          )
         : await this.getRecentChunks(userId, resolvedDocumentId);
       const documentScoped = Boolean(resolvedDocumentId);
       const chunks = rawChunks.filter((chunk) =>

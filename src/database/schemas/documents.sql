@@ -140,6 +140,7 @@ RETURNS TABLE (
     id UUID,
     document_id UUID,
     user_id UUID,
+    uploader_name TEXT,
     content TEXT,
     metadata JSONB,
     similarity float
@@ -152,14 +153,19 @@ BEGIN
         dc.id,
         dc.document_id,
         dc.user_id,
+        p.full_name AS uploader_name,
         dc.content,
         dc.metadata,
         1 - (dc.embedding <=> query_embedding) AS similarity
     FROM public.document_chunks dc
-    WHERE dc.user_id = requesting_user_id
-      AND (filter_document_id IS NULL OR dc.document_id = filter_document_id)
-      AND 1 - (dc.embedding <=> query_embedding) > match_threshold
+    INNER JOIN public.documents d ON d.id = dc.document_id
+    INNER JOIN public.profiles p ON p.id = d.user_id
+    WHERE
+        (filter_document_id IS NULL OR dc.document_id = filter_document_id)
+        AND 1 - (dc.embedding <=> query_embedding) >= match_threshold
     ORDER BY dc.embedding <=> query_embedding
     LIMIT match_count;
 END;
 $$;
+
+NOTIFY pgrst, 'reload schema';

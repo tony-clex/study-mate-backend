@@ -147,7 +147,7 @@ Authorization: Bearer <your_jwt_token>
 ### Using fetch in React Native
 
 ```typescript
-const token = await getToken(); 
+const token = await getToken();
 
 const response = await fetch('http://localhost:3000/api/session/create', {
   method: 'POST',

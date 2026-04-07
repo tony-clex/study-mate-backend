@@ -93,7 +93,7 @@
 //         subject: subject?.trim() || null,
 //       })
 //       .select()
-//       .single()) as { data: StudySessionDbRow | null; error: any };
+//       .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
 //     if (error) {
 //       this.mapSupabaseError(error, 'create session');
@@ -121,7 +121,7 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: StudySessionDbRow[] | null;
-//       error: any;
+//       error: SupabaseError;
 //     };
 
 //     if (error) {
@@ -151,7 +151,7 @@
 //       .select('*')
 //       .eq('id', sessionId)
 //       .eq('user_id', userId)
-//       .single()) as { data: StudySessionDbRow | null; error: any };
+//       .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
 //     if (error || !data) {
 //       throw new NotFoundException('Study session not found');
@@ -185,7 +185,7 @@
 //       .eq('id', sessionId)
 //       .eq('user_id', userId)
 //       .select()
-//       .single()) as { data: StudySessionDbRow | null; error: any };
+//       .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
 //     if (error || !data) {
 //       this.mapSupabaseError(
@@ -243,7 +243,7 @@
 //         file_type: file_type || null,
 //       })
 //       .select()
-//       .single()) as { data: SessionNoteDbRow | null; error: any };
+//       .single()) as { data: SessionNoteDbRow | null; error: SupabaseError };
 
 //     if (error) {
 //       console.error('Supabase insert note error:', error);
@@ -281,7 +281,7 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: SessionNoteDbRow[] | null;
-//       error: any;
+//       error: SupabaseError;
 //     };
 
 //     if (error) {
@@ -317,7 +317,7 @@
 //       .select('*')
 //       .eq('id', noteId)
 //       .eq('user_id', userId)
-//       .single()) as { data: SessionNoteDbRow | null; error: any };
+//       .single()) as { data: SessionNoteDbRow | null; error: SupabaseError };
 
 //     if (error || !data) {
 //       throw new NotFoundException('Session note not found');
@@ -370,7 +370,7 @@
 //       .eq('id', noteId)
 //       .eq('user_id', userId)
 //       .select()
-//       .single()) as { data: SessionNoteDbRow | null; error: any };
+//       .single()) as { data: SessionNoteDbRow | null; error: SupabaseError };
 
 //     if (error || !data) {
 //       console.error('Supabase update note error:', error);
@@ -430,7 +430,7 @@
 //         file_size,
 //       })
 //       .select()
-//       .single()) as { data: SessionFileDbRow | null; error: any };
+//       .single()) as { data: SessionFileDbRow | null; error: SupabaseError };
 
 //     if (error) {
 //       console.error('Supabase insert file error:', error);
@@ -466,7 +466,7 @@
 //       .eq('user_id', userId)
 //       .order('created_at', { ascending: false })) as {
 //       data: SessionFileDbRow[] | null;
-//       error: any;
+//       error: SupabaseError;
 //     };
 
 //     if (error) {
@@ -500,7 +500,7 @@
 //       .select('*')
 //       .eq('id', fileId)
 //       .eq('user_id', userId)
-//       .single()) as { data: SessionFileDbRow | null; error: any };
+//       .single()) as { data: SessionFileDbRow | null; error: SupabaseError };
 
 //     if (findError || !existingFile) {
 //       throw new NotFoundException('Session file not found');
@@ -592,6 +592,10 @@ function mapSupabaseError(error: unknown, operation: string): never {
   throw new InternalServerErrorException(`${operation} failed`);
 }
 
+interface SupabaseError {
+  message: string;
+}
+
 @Injectable()
 export class StudySessionService {
   async create(
@@ -604,7 +608,9 @@ export class StudySessionService {
       throw new BadRequestException('Title cannot be empty');
     }
 
-    console.log(`[StudySession] create called - userId: ${userId}, title: ${title}`);
+    console.log(
+      `[StudySession] create called - userId: ${userId}, title: ${title}`,
+    );
 
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
@@ -614,7 +620,7 @@ export class StudySessionService {
         subject: subject?.trim() || null,
       })
       .select()
-      .single()) as { data: StudySessionDbRow | null; error: any };
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
     if (error) {
       console.log(`[StudySession] create error: ${error.message}`);
@@ -639,14 +645,14 @@ export class StudySessionService {
 
   async findAll(userId: string): Promise<StudySessionListResponse> {
     console.log(`[StudySession] findAll called - userId: ${userId}`);
-    
+
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })) as {
       data: StudySessionDbRow[] | null;
-      error: any;
+      error: SupabaseError;
     };
 
     if (error) {
@@ -654,7 +660,9 @@ export class StudySessionService {
       mapSupabaseError(error, 'fetch sessions');
     }
 
-    console.log(`[StudySession] findAll returned ${data?.length ?? 0} sessions`);
+    console.log(
+      `[StudySession] findAll returned ${data?.length ?? 0} sessions`,
+    );
 
     const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
       id: session.id,
@@ -674,20 +682,24 @@ export class StudySessionService {
     userId: string,
     sessionId: string,
   ): Promise<StudySessionResponse> {
-    console.log(`[StudySession] findOne called - userId: ${userId}, sessionId: ${sessionId}`);
-    
+    console.log(
+      `[StudySession] findOne called - userId: ${userId}, sessionId: ${sessionId}`,
+    );
+
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
       .eq('id', sessionId)
       .eq('user_id', userId)
-      .single()) as { data: StudySessionDbRow | null; error: any };
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
     if (error) {
       console.log(`[StudySession] findOne error: ${error.message}`);
     }
     if (!data) {
-      console.log(`[StudySession] findOne - no data returned for sessionId: ${sessionId}, userId: ${userId}`);
+      console.log(
+        `[StudySession] findOne - no data returned for sessionId: ${sessionId}, userId: ${userId}`,
+      );
     }
 
     if (error || !data) {

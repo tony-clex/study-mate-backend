@@ -1,4 +1,4 @@
-import { IsString, IsUUID, IsEnum, IsOptional } from 'class-validator';
+import { IsUUID, IsEnum, IsOptional } from 'class-validator';
 
 export enum CollaboratorRole {
   VIEWER = 'viewer',

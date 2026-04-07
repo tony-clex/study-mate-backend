@@ -26,7 +26,10 @@ import {
   CreateSessionFileDto,
 } from './dto/study-session.dto';
 import { CreateSpacedCardDto, ReviewCardDto } from './dto/spaced-card.dto';
-import { CreateCollaboratorDto, UpdateCollaboratorStatusDto } from './dto/collaborator.dto';
+import {
+  CreateCollaboratorDto,
+  UpdateCollaboratorStatusDto,
+} from './dto/collaborator.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 interface AuthenticatedRequest extends Request {
@@ -299,7 +302,11 @@ export class StudySessionController {
     @Body() updateDto: UpdateCollaboratorStatusDto,
   ) {
     const userId = req.user.id;
-    return this.collaborationService.updateCollaboratorStatus(userId, sessionId, updateDto);
+    return this.collaborationService.updateCollaboratorStatus(
+      userId,
+      sessionId,
+      updateDto,
+    );
   }
 
   @Delete('collaboration/session/:sessionId/collaborator/:collaboratorId')
@@ -310,7 +317,11 @@ export class StudySessionController {
     @Param('collaboratorId', ParseUUIDPipe) collaboratorId: string,
   ) {
     const ownerId = req.user.id;
-    return this.collaborationService.removeCollaborator(ownerId, sessionId, collaboratorId);
+    return this.collaborationService.removeCollaborator(
+      ownerId,
+      sessionId,
+      collaboratorId,
+    );
   }
 
   @Get('collaboration/shared')
