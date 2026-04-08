@@ -240,7 +240,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.2-90b-vision-preview',
+          model: 'openai/gpt-4o-mini',
           messages: [
             {
               role: 'user',
@@ -336,7 +336,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3-8b-instruct',
+          model: 'openai/gpt-4o-mini',
           messages: [
             {
               role: 'user',
@@ -448,7 +448,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3-8b-instruct',
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [
             {
               role: 'user',
