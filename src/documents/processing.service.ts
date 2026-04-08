@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import * as mammoth from 'mammoth';
 import axios from 'axios';
+import pdfParse from 'pdf-parse-fork';
 import { AiService } from '../ai/ai.service';
 
 @Injectable()
@@ -107,6 +108,21 @@ export class ProcessingService {
     return compactLength < 200 || watermarkHits > 0;
   }
 
+  private async extractPdfWithTextParser(pdfBuffer: Buffer): Promise<string> {
+    this.logger.log('[AI-Prep] Extracting PDF text with local parser...');
+    const parsed = await pdfParse(pdfBuffer);
+    const extractedText = parsed.text?.trim() || '';
+
+    if (!extractedText) {
+      throw new Error('Local PDF parser returned empty text.');
+    }
+
+    this.logger.log(
+      `[AI-Prep] Local PDF parser extracted ${extractedText.length} characters.`,
+    );
+    return extractedText;
+  }
+
   isMeaningfulEducationalText(text: string): boolean {
     const normalized = this.normalizeForQualityChecks(text);
 
@@ -195,37 +211,53 @@ export class ProcessingService {
           fileType,
         );
       }
-      // --- PDF EXTRACTION - ALWAYS USE AI VISION FOR ALL PDFs ---
-      // This ensures scanned/image PDFs are also readable
+      // --- PDF EXTRACTION ---
       else if (fileType.includes('pdf')) {
-        this.logger.log(
-          '[AI-Prep] Processing ALL PDFs with AI Vision (Gemini -> Groq)...',
-        );
-
-        // Try Gemini first
         try {
-          extractedText = await this.aiService.extractStudyTextFromPdf(buffer);
-          this.logger.log('[AI-Prep] Gemini successfully extracted PDF text');
-        } catch (geminiError: unknown) {
-          const geminiMessage =
-            geminiError instanceof Error
-              ? geminiError.message
+          extractedText = await this.extractPdfWithTextParser(buffer);
+          if (this.shouldUsePdfFallback(extractedText)) {
+            throw new Error(
+              'Local PDF parser only found weak or watermarked text.',
+            );
+          }
+          this.logger.log(
+            '[AI-Prep] Local PDF parser successfully extracted PDF text',
+          );
+        } catch (localParserError: unknown) {
+          const localParserMessage =
+            localParserError instanceof Error
+              ? localParserError.message
               : 'Unknown error';
           this.logger.warn(
-            `[AI-Prep] Gemini PDF extraction failed: ${geminiMessage}. Trying Groq...`,
+            `[AI-Prep] Local PDF parser was insufficient: ${localParserMessage}. Trying AI vision...`,
           );
 
-          // Try Groq as backup
           try {
-            extractedText = await this.extractPdfWithGroq(buffer);
-            this.logger.log('[AI-Prep] Groq successfully extracted PDF text');
-          } catch (groqError: unknown) {
-            const groqMessage =
-              groqError instanceof Error ? groqError.message : 'Unknown error';
-            this.logger.error(`[AI-Prep] Groq also failed: ${groqMessage}`);
-            throw new Error(
-              `All AI providers failed to read this PDF: ${geminiMessage} | ${groqMessage}`,
+            extractedText =
+              await this.aiService.extractStudyTextFromPdf(buffer);
+            this.logger.log('[AI-Prep] Gemini successfully extracted PDF text');
+          } catch (geminiError: unknown) {
+            const geminiMessage =
+              geminiError instanceof Error
+                ? geminiError.message
+                : 'Unknown error';
+            this.logger.warn(
+              `[AI-Prep] Gemini PDF extraction failed: ${geminiMessage}. Trying Groq...`,
             );
+
+            try {
+              extractedText = await this.extractPdfWithGroq(buffer);
+              this.logger.log('[AI-Prep] Groq successfully extracted PDF text');
+            } catch (groqError: unknown) {
+              const groqMessage =
+                groqError instanceof Error
+                  ? groqError.message
+                  : 'Unknown error';
+              this.logger.error(`[AI-Prep] Groq also failed: ${groqMessage}`);
+              throw new Error(
+                `All AI providers failed to read this PDF: ${geminiMessage} | ${groqMessage}`,
+              );
+            }
           }
         }
       }
@@ -327,7 +359,7 @@ export class ProcessingService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.2-90b-vision-preview',
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [
             {
               role: 'user',

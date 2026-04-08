@@ -2,9 +2,11 @@ import {
   Injectable,
   Logger,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import { AiService } from '../ai/ai.service';
+import { ProcessingService } from '../documents/processing.service';
 
 export interface SearchFilters {
   date_from?: string;
@@ -37,6 +39,33 @@ interface SearchRpcRow {
   content: string;
   metadata: Record<string, unknown>;
   similarity: number;
+}
+
+interface DocumentRow {
+  id: string;
+  user_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+export interface ReindexResult {
+  document_id: string;
+  file_name: string;
+  chunk_count: number;
+  success: boolean;
+  message?: string;
+}
+
+export interface ReindexSummary {
+  total_documents: number;
+  processed_documents: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  results: ReindexResult[];
 }
 
 export interface SearchResult {
@@ -81,7 +110,10 @@ export class SearchService {
   private readonly CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   private readonly MAX_CACHE_SIZE = 500;
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly processingService: ProcessingService,
+  ) {}
 
   private getCacheKey(text: string): string {
     return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -173,6 +205,209 @@ export class SearchService {
     }
 
     return new Map((data || []).map((document) => [document.id, document]));
+  }
+
+  private async getDocumentById(
+    documentId: string,
+  ): Promise<DocumentRow | null> {
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .select(
+        'id, user_id, file_name, file_url, file_type, file_size, created_at',
+      )
+      .eq('id', documentId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch document: ${error.message}`,
+      );
+    }
+
+    return (data as DocumentRow | null) ?? null;
+  }
+
+  private async getDocumentsWithChunkIds(
+    userId?: string,
+  ): Promise<Set<string>> {
+    let query = supabaseAdmin.from('document_chunks').select('document_id');
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to inspect indexed documents: ${error.message}`,
+      );
+    }
+
+    const rows = (data || []) as Array<{ document_id: string }>;
+    return new Set(rows.map((row) => row.document_id));
+  }
+
+  private async buildChunkRows(
+    document: DocumentRow,
+    rawText: string,
+  ): Promise<
+    Array<{
+      document_id: string;
+      user_id: string;
+      content: string;
+      embedding: number[] | null;
+      metadata: Record<string, unknown>;
+    }>
+  > {
+    const chunks = this.processingService
+      .splitTextIntoChunks(rawText)
+      .filter((chunk) => this.processingService.isUsableStudyChunk(chunk));
+
+    if (chunks.length === 0) {
+      return [];
+    }
+
+    return Promise.all(
+      chunks.map(async (content, index) => {
+        let embedding: number[] | null = null;
+
+        try {
+          embedding = await this.aiService.getEmbedding(content);
+        } catch (embeddingError: unknown) {
+          const message =
+            embeddingError instanceof Error
+              ? embeddingError.message
+              : 'Unknown error';
+          this.logger.warn(
+            `[Search] Embedding failed while reindexing ${document.id} chunk ${index}: ${message}. Storing text without embedding.`,
+          );
+        }
+
+        return {
+          document_id: document.id,
+          user_id: document.user_id,
+          content,
+          embedding,
+          metadata: {
+            chunk_index: index,
+            original_name: document.file_name,
+            reindexed: true,
+          },
+        };
+      }),
+    );
+  }
+
+  async reindexDocument(documentId: string): Promise<ReindexResult> {
+    const document = await this.getDocumentById(documentId);
+
+    if (!document) {
+      throw new BadRequestException('Document not found');
+    }
+
+    try {
+      const rawText =
+        await this.processingService.extractTextForQuestionAnswering(
+          document.file_url,
+          document.file_type,
+        );
+
+      const chunkRows = await this.buildChunkRows(document, rawText);
+      if (chunkRows.length === 0) {
+        return {
+          document_id: document.id,
+          file_name: document.file_name,
+          chunk_count: 0,
+          success: false,
+          message: 'No usable text chunks were produced for this document.',
+        };
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from('document_chunks')
+        .delete()
+        .eq('document_id', document.id);
+
+      if (deleteError) {
+        throw new InternalServerErrorException(
+          `Failed to clear old chunks: ${deleteError.message}`,
+        );
+      }
+
+      const { error: insertError } = await supabaseAdmin
+        .from('document_chunks')
+        .insert(chunkRows);
+
+      if (insertError) {
+        throw new InternalServerErrorException(
+          `Failed to save reindexed chunks: ${insertError.message}`,
+        );
+      }
+
+      return {
+        document_id: document.id,
+        file_name: document.file_name,
+        chunk_count: chunkRows.length,
+        success: true,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `[Search] Reindex failed for ${document.id}: ${message}`,
+      );
+      return {
+        document_id: document.id,
+        file_name: document.file_name,
+        chunk_count: 0,
+        success: false,
+        message,
+      };
+    }
+  }
+
+  async reindexAllDocuments(userId?: string): Promise<ReindexSummary> {
+    let docsQuery = supabaseAdmin
+      .from('documents')
+      .select(
+        'id, user_id, file_name, file_url, file_type, file_size, created_at',
+      )
+      .order('created_at', { ascending: false });
+
+    if (userId) {
+      docsQuery = docsQuery.eq('user_id', userId);
+    }
+
+    const { data: documents, error } = await docsQuery;
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch documents for reindexing: ${error.message}`,
+      );
+    }
+
+    const indexedDocumentIds = await this.getDocumentsWithChunkIds(userId);
+    const fetchedDocuments = (documents || []) as DocumentRow[];
+    const documentsToReindex = fetchedDocuments.filter(
+      (document) => !indexedDocumentIds.has(document.id),
+    );
+
+    const results: ReindexResult[] = [];
+    for (const document of documentsToReindex) {
+      results.push(await this.reindexDocument(document.id));
+    }
+
+    const succeeded = results.filter((item) => item.success).length;
+    const failed = results.filter((item) => !item.success).length;
+
+    return {
+      total_documents: documents?.length || 0,
+      processed_documents: results.length,
+      succeeded,
+      failed,
+      skipped: (documents?.length || 0) - results.length,
+      results,
+    };
   }
 
   private async runKeywordFallbackSearch(
@@ -294,6 +529,20 @@ export class SearchService {
     offset: number,
     filters?: SearchFilters,
   ): Promise<SearchResult[]> {
+    const databaseResults = await this.runKeywordFallbackSearch(
+      query,
+      matchCount,
+      offset,
+      filters,
+    );
+
+    if (databaseResults.length > 0) {
+      this.logger.log(
+        `[Search] Database text search found ${databaseResults.length} results for query: "${query}"`,
+      );
+      return databaseResults;
+    }
+
     let embedding = this.getCachedEmbedding(query);
     if (!embedding) {
       embedding = await this.aiService.getEmbedding(query);
@@ -319,17 +568,17 @@ export class SearchService {
 
     if (error) {
       this.logger.warn(
-        `[Search] RPC search failed, using fallback: ${error.message}`,
+        `[Search] Vector search failed, using database results only: ${error.message}`,
       );
-      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+      return [];
     }
 
     const rpcResults = results ?? [];
     if (rpcResults.length === 0) {
       this.logger.log(
-        `[Search] No vector results found for query: "${query}". Falling back to keyword search.`,
+        `[Search] No vector results found for query: "${query}".`,
       );
-      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+      return [];
     }
 
     const paginatedResults = rpcResults.slice(offset, offset + matchCount);
@@ -355,9 +604,9 @@ export class SearchService {
 
     if (enrichedResults.length === 0) {
       this.logger.log(
-        `[Search] Vector results were filtered out for query: "${query}". Falling back to keyword search.`,
+        `[Search] Vector results were filtered out for query: "${query}".`,
       );
-      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+      return [];
     }
 
     return enrichedResults;

@@ -9,6 +9,7 @@ import {
   Res,
   HttpStatus,
   HttpCode,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -38,6 +39,21 @@ interface PaginatedSearchResult {
 
 interface SearchHistoryResponse {
   history: SearchHistoryItem[];
+}
+
+interface ReindexResponse {
+  total_documents: number;
+  processed_documents: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  results: {
+    document_id: string;
+    file_name: string;
+    chunk_count: number;
+    success: boolean;
+    message?: string;
+  }[];
 }
 
 @Controller('search')
@@ -179,5 +195,35 @@ export class SearchController {
     }
 
     return this.searchService.getUserDocuments(userId);
+  }
+
+  @Post('reindex')
+  async reindexDocument(
+    @Request() req: AuthRequest,
+    @Body() body: { document_id?: string },
+  ): Promise<ReindexResponse> {
+    const userId = req.user?.id ?? req.userId;
+    if (!userId) {
+      throw new Error('Authenticated user ID is missing from the request');
+    }
+
+    if (!body?.document_id) {
+      throw new BadRequestException('document_id is required');
+    }
+
+    const result = await this.searchService.reindexDocument(body.document_id);
+    return {
+      total_documents: 1,
+      processed_documents: 1,
+      succeeded: result.success ? 1 : 0,
+      failed: result.success ? 0 : 1,
+      skipped: 0,
+      results: [result],
+    };
+  }
+
+  @Post('reindex/all')
+  async reindexAllDocuments(): Promise<ReindexResponse> {
+    return this.searchService.reindexAllDocuments();
   }
 }
