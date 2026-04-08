@@ -12,6 +12,33 @@ export interface SearchFilters {
   file_type?: string;
 }
 
+interface DocumentMetadata {
+  id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  created_at: string;
+}
+
+interface SearchChunkRow {
+  id: string;
+  document_id: string;
+  user_id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at?: string;
+}
+
+interface SearchRpcRow {
+  id: string;
+  document_id: string;
+  user_id: string;
+  uploader_name?: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  similarity: number;
+}
+
 export interface SearchResult {
   id: string;
   document_id: string;
@@ -77,7 +104,7 @@ export class SearchService {
     }
   }
 
-  private async getCachedEmbedding(text: string): Promise<number[] | null> {
+  private getCachedEmbedding(text: string): number[] | null {
     const key = this.getCacheKey(text);
     const entry = this.embeddingCache.get(key);
     if (entry && Date.now() - entry.timestamp <= this.CACHE_TTL_MS) {
@@ -89,13 +116,251 @@ export class SearchService {
     return null;
   }
 
-  private async cacheEmbedding(
-    text: string,
-    embedding: number[],
-  ): Promise<void> {
+  private cacheEmbedding(text: string, embedding: number[]): void {
     this.cleanExpiredCache();
     const key = this.getCacheKey(text);
     this.embeddingCache.set(key, { embedding, timestamp: Date.now() });
+  }
+
+  private normalizeSearchTerms(query: string): string[] {
+    const terms = query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter((term) => term.length > 2);
+
+    return [...new Set(terms)].slice(0, 6);
+  }
+
+  private escapeIlike(term: string): string {
+    return term
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+  }
+
+  private async fetchDocumentMetadata(
+    documentIds: string[],
+    filters?: SearchFilters,
+  ): Promise<Map<string, DocumentMetadata>> {
+    if (documentIds.length === 0) {
+      return new Map();
+    }
+
+    let queryBuilder = supabaseAdmin
+      .from('documents')
+      .select('id, file_name, file_url, file_type, created_at')
+      .in('id', documentIds);
+
+    if (filters?.date_from) {
+      queryBuilder = queryBuilder.gte('created_at', filters.date_from);
+    }
+    if (filters?.date_to) {
+      queryBuilder = queryBuilder.lte('created_at', filters.date_to);
+    }
+    if (filters?.file_type) {
+      queryBuilder = queryBuilder.eq('file_type', filters.file_type);
+    }
+
+    const { data, error } = await queryBuilder;
+
+    if (error) {
+      this.logger.warn(
+        `[Search] Could not fetch document metadata: ${error.message}`,
+      );
+      return new Map();
+    }
+
+    return new Map((data || []).map((document) => [document.id, document]));
+  }
+
+  private async runKeywordFallbackSearch(
+    query: string,
+    matchCount: number,
+    offset: number,
+    filters?: SearchFilters,
+  ): Promise<SearchResult[]> {
+    const terms = this.normalizeSearchTerms(query);
+    const patterns = (terms.length > 0 ? terms : [query.trim()])
+      .filter(Boolean)
+      .map((term) => `%${this.escapeIlike(term)}%`);
+
+    if (patterns.length === 0) {
+      return [];
+    }
+
+    const chunkResponses = await Promise.all(
+      patterns.map((pattern) =>
+        supabaseAdmin
+          .from('document_chunks')
+          .select('id, document_id, user_id, content, metadata, created_at')
+          .ilike('content', pattern)
+          .order('created_at', { ascending: false })
+          .limit(matchCount * 5),
+      ),
+    );
+
+    const chunkRows = chunkResponses
+      .flatMap(({ data }) => data || [])
+      .filter(
+        (row, index, rows) =>
+          rows.findIndex((candidate) => candidate.id === row.id) === index,
+      ) as SearchChunkRow[];
+
+    if (chunkRows.length === 0) {
+      const documentResponses = await Promise.all(
+        patterns.map((pattern) =>
+          supabaseAdmin
+            .from('documents')
+            .select('id, file_name, file_url, file_type, created_at')
+            .ilike('file_name', pattern)
+            .order('created_at', { ascending: false })
+            .limit(matchCount * 5),
+        ),
+      );
+
+      const matchedDocuments = documentResponses
+        .flatMap(({ data }) => data || [])
+        .filter(
+          (row, index, rows) =>
+            rows.findIndex((candidate) => candidate.id === row.id) === index,
+        ) as DocumentMetadata[];
+
+      const documentIds = matchedDocuments.map((document) => document.id);
+      const { data: fallbackChunks } = await supabaseAdmin
+        .from('document_chunks')
+        .select('id, document_id, user_id, content, metadata, created_at')
+        .in('document_id', documentIds)
+        .order('created_at', { ascending: false })
+        .limit(matchCount * 5);
+
+      const fallbackChunkRows = (fallbackChunks || []) as SearchChunkRow[];
+      const docMap = await this.fetchDocumentMetadata(documentIds, filters);
+      return fallbackChunkRows
+        .slice(offset, offset + matchCount)
+        .filter((row) => docMap.has(row.document_id))
+        .map((row) => {
+          const document = docMap.get(row.document_id);
+          return {
+            id: row.id,
+            document_id: row.document_id,
+            user_id: row.user_id,
+            content: row.content,
+            metadata: row.metadata,
+            similarity: 0,
+            title: document?.file_name ?? 'Untitled',
+            file_name: document?.file_name ?? undefined,
+            file_url: document?.file_url ?? undefined,
+            file_type: document?.file_type ?? undefined,
+            created_at: document?.created_at ?? undefined,
+            documents: document,
+          };
+        });
+    }
+
+    const paginatedChunks = chunkRows.slice(offset, offset + matchCount);
+    const documentIds = [
+      ...new Set(paginatedChunks.map((row) => row.document_id)),
+    ];
+    const docMap = await this.fetchDocumentMetadata(documentIds, filters);
+
+    return paginatedChunks
+      .filter((row) => docMap.has(row.document_id))
+      .map((row) => {
+        const document = docMap.get(row.document_id);
+        return {
+          id: row.id,
+          document_id: row.document_id,
+          user_id: row.user_id,
+          content: row.content,
+          metadata: row.metadata,
+          similarity: 0,
+          title: document?.file_name ?? 'Untitled',
+          file_name: document?.file_name ?? undefined,
+          file_url: document?.file_url ?? undefined,
+          file_type: document?.file_type ?? undefined,
+          created_at: document?.created_at ?? undefined,
+          documents: document,
+        };
+      });
+  }
+
+  private async getSearchResults(
+    userId: string,
+    query: string,
+    matchThreshold: number,
+    matchCount: number,
+    offset: number,
+    filters?: SearchFilters,
+  ): Promise<SearchResult[]> {
+    let embedding = this.getCachedEmbedding(query);
+    if (!embedding) {
+      embedding = await this.aiService.getEmbedding(query);
+      this.cacheEmbedding(query, embedding);
+    }
+
+    const fetchCount = offset + matchCount;
+    const rpcResponse = (await supabaseAdmin.rpc(
+      'match_document_chunks_for_user',
+      {
+        query_embedding: embedding,
+        requesting_user_id: userId,
+        filter_document_id: null,
+        match_threshold: matchThreshold,
+        match_count: fetchCount,
+      },
+    )) as {
+      data: SearchRpcRow[] | null;
+      error: { message: string } | null;
+    };
+
+    const { data: results, error } = rpcResponse;
+
+    if (error) {
+      this.logger.warn(
+        `[Search] RPC search failed, using fallback: ${error.message}`,
+      );
+      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+    }
+
+    const rpcResults = results ?? [];
+    if (rpcResults.length === 0) {
+      this.logger.log(
+        `[Search] No vector results found for query: "${query}". Falling back to keyword search.`,
+      );
+      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+    }
+
+    const paginatedResults = rpcResults.slice(offset, offset + matchCount);
+    const documentIds = [
+      ...new Set(paginatedResults.map((r) => r.document_id)),
+    ];
+    const docMap = await this.fetchDocumentMetadata(documentIds, filters);
+
+    const enrichedResults = paginatedResults
+      .filter((result) => docMap.has(result.document_id))
+      .map((result: SearchRpcRow) => {
+        const document = docMap.get(result.document_id);
+        return {
+          ...result,
+          title: document?.file_name ?? 'Untitled',
+          file_name: document?.file_name ?? undefined,
+          file_url: document?.file_url ?? undefined,
+          file_type: document?.file_type ?? undefined,
+          created_at: document?.created_at ?? undefined,
+          documents: document,
+        };
+      });
+
+    if (enrichedResults.length === 0) {
+      this.logger.log(
+        `[Search] Vector results were filtered out for query: "${query}". Falling back to keyword search.`,
+      );
+      return this.runKeywordFallbackSearch(query, matchCount, offset, filters);
+    }
+
+    return enrichedResults;
   }
 
   async saveSearchHistory(
@@ -146,78 +411,25 @@ export class SearchService {
     this.logger.log(
       `[Search] Stream searching notes for user: ${userId}, query: "${query}"`,
     );
-
-    let embedding = await this.getCachedEmbedding(query);
-    if (!embedding) {
-      embedding = await this.aiService.getEmbedding(query);
-      await this.cacheEmbedding(query, embedding);
-    }
-
-    const fetchCount = offset + matchCount;
-    const { data: results, error } = await supabaseAdmin.rpc(
-      'match_document_chunks_for_user',
-      {
-        query_embedding: embedding,
-        requesting_user_id: userId,
-        filter_document_id: null,
-        match_threshold: matchThreshold,
-        match_count: fetchCount,
-      },
+    const results = await this.getSearchResults(
+      userId,
+      query,
+      matchThreshold,
+      matchCount,
+      offset,
+      filters,
     );
-
-    if (error) {
-      this.logger.error(`[Search] Stream RPC error: ${error.message}`);
-      throw new InternalServerErrorException(`Search failed: ${error.message}`);
-    }
 
     if (!results || results.length === 0) {
       this.logger.log(`[Search] No stream results found for query: "${query}"`);
       return;
     }
 
-    const paginatedResults = results.slice(offset, offset + matchCount);
-    const documentIds = [
-      ...new Set(paginatedResults.map((r: SearchResult) => r.document_id)),
-    ];
-
-    let queryBuilder = supabaseAdmin
-      .from('documents')
-      .select('id, file_name, file_url, file_type, created_at')
-      .in('id', documentIds);
-
-    if (filters?.date_from) {
-      queryBuilder = queryBuilder.gte('created_at', filters.date_from);
-    }
-    if (filters?.date_to) {
-      queryBuilder = queryBuilder.lte('created_at', filters.date_to);
-    }
-    if (filters?.file_type) {
-      queryBuilder = queryBuilder.eq('file_type', filters.file_type);
+    for (const result of results) {
+      yield result;
     }
 
-    const { data: documents } = await queryBuilder;
-    const docMap = new Map(documents?.map((d) => [d.id, d]) || []);
-
-    for (const result of paginatedResults) {
-      const document = docMap.get(result.document_id) || null;
-      const enriched = {
-        ...result,
-        title: document?.file_name ?? 'Untitled',
-        file_name: document?.file_name ?? undefined,
-        file_url: document?.file_url ?? undefined,
-        file_type: document?.file_type ?? undefined,
-        created_at: document?.created_at ?? undefined,
-        documents: document,
-      };
-      yield enriched;
-    }
-
-    this.saveSearchHistory(
-      userId,
-      query,
-      paginatedResults.length,
-      matchThreshold,
-    );
+    void this.saveSearchHistory(userId, query, results.length, matchThreshold);
   }
 
   async searchNotes(
@@ -232,80 +444,14 @@ export class SearchService {
       this.logger.log(
         `[Search] Searching notes for user: ${userId}, query: "${query}" (offset: ${offset}, threshold: ${matchThreshold})`,
       );
-
-      let embedding = await this.getCachedEmbedding(query);
-      if (!embedding) {
-        embedding = await this.aiService.getEmbedding(query);
-        await this.cacheEmbedding(query, embedding);
-      }
-
-      const fetchCount = offset + matchCount;
-      const { data: results, error } = await supabaseAdmin.rpc(
-        'match_document_chunks_for_user',
-        {
-          query_embedding: embedding,
-          requesting_user_id: userId,
-          filter_document_id: null,
-          match_threshold: matchThreshold,
-          match_count: fetchCount,
-        },
+      const enrichedResults = await this.getSearchResults(
+        userId,
+        query,
+        matchThreshold,
+        matchCount,
+        offset,
+        filters,
       );
-
-      if (error) {
-        this.logger.error(`[Search] RPC error: ${error.message}`);
-        throw new InternalServerErrorException(
-          `Search failed: ${error.message}`,
-        );
-      }
-
-      if (!results || results.length === 0) {
-        this.logger.log(`[Search] No results found for query: "${query}"`);
-        return [];
-      }
-
-      const paginatedResults = results.slice(offset, offset + matchCount);
-      if (paginatedResults.length === 0) {
-        return [];
-      }
-
-      const documentIds = [
-        ...new Set(paginatedResults.map((r: SearchResult) => r.document_id)),
-      ];
-
-      let queryBuilder = supabaseAdmin
-        .from('documents')
-        .select('id, file_name, file_url, file_type, created_at')
-        .in('id', documentIds);
-
-      if (filters?.date_from) {
-        queryBuilder = queryBuilder.gte('created_at', filters.date_from);
-      }
-      if (filters?.date_to) {
-        queryBuilder = queryBuilder.lte('created_at', filters.date_to);
-      }
-      if (filters?.file_type) {
-        queryBuilder = queryBuilder.eq('file_type', filters.file_type);
-      }
-
-      const { data: documents, error: docError } = await queryBuilder;
-
-      if (docError) {
-        this.logger.warn(
-          `[Search] Could not fetch document metadata: ${docError.message}`,
-        );
-      }
-
-      const docMap = new Map(documents?.map((d) => [d.id, d]) || []);
-
-      const enrichedResults = paginatedResults.map((result: SearchResult) => ({
-        ...result,
-        title: docMap.get(result.document_id)?.file_name ?? 'Untitled',
-        file_name: docMap.get(result.document_id)?.file_name ?? undefined,
-        file_url: docMap.get(result.document_id)?.file_url ?? undefined,
-        file_type: docMap.get(result.document_id)?.file_type ?? undefined,
-        created_at: docMap.get(result.document_id)?.created_at ?? undefined,
-        documents: docMap.get(result.document_id) || null,
-      }));
 
       this.logger.log(
         `[Search] Found ${enrichedResults.length} results for query: "${query}"`,
