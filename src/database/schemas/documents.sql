@@ -159,7 +159,7 @@ BEGIN
         1 - (dc.embedding <=> query_embedding) AS similarity
     FROM public.document_chunks dc
     INNER JOIN public.documents d ON d.id = dc.document_id
-    INNER JOIN public.profiles p ON p.id = d.user_id
+    LEFT JOIN public.profiles p ON p.id = d.user_id
     WHERE
         (filter_document_id IS NULL OR dc.document_id = filter_document_id)
         AND 1 - (dc.embedding <=> query_embedding) >= match_threshold

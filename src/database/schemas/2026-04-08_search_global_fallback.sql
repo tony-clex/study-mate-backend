@@ -1,12 +1,21 @@
+-- Migration: keep cross-user search results visible even when a profile row is missing,
+-- and make the vector search RPC safe for uploads from any account.
 
-
-
-
--- Keep the RPC signature aligned with the definition in documents.sql.
--- This is a global search RPC: it does not filter by requesting_user_id.
--- Recreate it here as well so either schema script can safely be applied.
-DROP FUNCTION IF EXISTS public.match_document_chunks_for_user(vector(3072), uuid, uuid, double precision, integer);
-DROP FUNCTION IF EXISTS public.match_document_chunks_for_user(vector(768), uuid, uuid, double precision, integer);
+-- Recreate the RPC used by searchNotes() and streamSearchNotes().
+DROP FUNCTION IF EXISTS public.match_document_chunks_for_user(
+  vector(3072),
+  uuid,
+  uuid,
+  double precision,
+  integer
+);
+DROP FUNCTION IF EXISTS public.match_document_chunks_for_user(
+  vector(768),
+  uuid,
+  uuid,
+  double precision,
+  integer
+);
 
 CREATE OR REPLACE FUNCTION public.match_document_chunks_for_user(
   query_embedding vector(3072),
@@ -47,5 +56,4 @@ BEGIN
 END;
 $$;
 
--- Step 3: Refresh schema cache
 NOTIFY pgrst, 'reload schema';
