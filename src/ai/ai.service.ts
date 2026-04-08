@@ -240,7 +240,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'openai/gpt-4o-mini',
+          model: 'llama-3.2-90b-vision-preview',
           messages: [
             {
               role: 'user',
@@ -336,7 +336,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'openai/gpt-4o-mini',
+          model: 'meta-llama/llama-3-8b-instruct',
           messages: [
             {
               role: 'user',
@@ -448,7 +448,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'meta-llama/llama-3-8b-instruct',
           messages: [
             {
               role: 'user',
@@ -699,5 +699,66 @@ Rules:
       `[AiService] OpenRouter image extraction complete: ${extractedText.length} characters`,
     );
     return extractedText;
+  }
+
+  async chatWithCompanion(
+    question: string,
+    history: any[],
+    context: string = '',
+  ) {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        // tools: [{ googleSearch: {} }],
+      });
+
+      const chat = model.startChat({ history });
+
+      const contextPrefix = context
+        ? `[FILE CONTEXT PROVIDED]:\n${context}\n\n---\n\n`
+        : '';
+
+      const enhancedPrompt = `${contextPrefix}${question} 
+      \n\n(Instruction: You are a study companion. Use the provided context if available. If a visual would help explain a complex concept, start a new line with exactly: [GENERATE_IMAGE: description of image])`;
+
+      const result = await chat.sendMessage(enhancedPrompt);
+      const response = result.response;
+      const text = response.text();
+
+      return { text };
+    } catch (error) {
+      this.logger.error(`Companion Error: ${(error as Error).message}`);
+      return {
+        text: "I'm sorry, I'm having trouble connecting to my research tools right now.",
+      };
+    }
+  }
+
+  async processVoiceNote(
+    audioBuffer: Buffer,
+    mimeType: string = 'audio/mp3',
+  ): Promise<string> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash',
+      });
+
+      const audioPart = {
+        inlineData: {
+          data: audioBuffer.toString('base64'),
+          mimeType: mimeType,
+        },
+      };
+
+      const result = await model.generateContent([
+        'You are an AI study assistant. Listen to this voice note from a student and provide a helpful, concise text response.',
+        audioPart,
+      ]);
+
+      return result.response.text();
+    } catch (error) {
+      this.logger.error(`Voice Processing Error: ${(error as Error).message}`);
+      throw new Error('Failed to process voice note.');
+    }
   }
 }

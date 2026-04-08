@@ -39,9 +39,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { json } from 'express';
 import { AppModule } from './app.module';
+import { setDefaultResultOrder } from 'node:dns';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  setDefaultResultOrder('ipv4first');
 
   // Increase body limit for large file uploads (images, PDFs from mobile)
   app.use(json({ limit: '50mb' }));

@@ -4,12 +4,32 @@ import {
   IsString,
   IsUUID,
   IsUrl,
+  IsEnum,
+  IsArray,
 } from 'class-validator';
 
 export class ChatQueryDto {
   @IsString()
   @IsNotEmpty({ message: 'question is required' })
   question: string;
+
+  @IsOptional()
+  @IsEnum(['text', 'image', 'pdf', 'audio', 'research'], {
+    message: 'mode must be text, image, pdf, audio, or research',
+  })
+  mode?: 'text' | 'image' | 'pdf' | 'audio' | 'research' = 'text';
+
+  @IsOptional()
+  @IsArray()
+  history?: any[];
+
+  @IsOptional()
+  @IsUrl({}, { message: 'attachmentUrl must be a valid URL' })
+  attachmentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentType?: string;
 
   @IsOptional()
   @IsUUID('4', { message: 'documentId must be a valid UUID' })
