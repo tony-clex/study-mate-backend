@@ -45,15 +45,19 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   setDefaultResultOrder('ipv4first');
+  const port = Number(process.env.PORT || 3000);
+  const host = '0.0.0.0';
 
   // Increase body limit for large file uploads (images, PDFs from mobile)
   app.use(json({ limit: '50mb' }));
 
   // 1. ENABLE CORS
+  // Authorization is sent via Bearer tokens, so credentials are not needed.
   app.enableCors({
     origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: false,
   });
 
   // 2. VALIDATION
@@ -66,11 +70,12 @@ async function bootstrap() {
   );
 
   // 3. NETWORK BINDING
-  await app.listen(3000, '0.0.0.0');
+  await app.listen(port, host);
 
   console.log(`\n--- STUDY-MATE BACKEND STARTED ---`);
   console.log(`🚀 Server is listening on all interfaces`);
-  console.log(`📱 For Expo Go, use: http://192.168.1.172:3000`);
+  console.log(`🌐 Server URL: http://localhost:${port}`);
+  console.log(`📱 For Expo Go, use your machine LAN IP on port ${port}`);
   console.log(`📁 File upload limit: 50MB`);
   console.log(`-----------------------------------\n`);
 }
