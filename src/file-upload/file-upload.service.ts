@@ -40,15 +40,18 @@ interface DocumentRow {
 @Injectable()
 export class FileUploadService {
   private readonly logger = new Logger(FileUploadService.name);
-  private readonly bucketName = 'session-files';
+  private readonly bucketName = 'study-files';
 
   private readonly allowedMimeTypes = [
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/gif',
     'image/webp',
     'image/heic',
     'image/heif',
+    'image/x-heic',
+    'image/x-heif',
     'application/pdf',
     'text/plain',
     'text/markdown',
@@ -146,10 +149,11 @@ export class FileUploadService {
       if (isDocument) {
         try {
           this.logger.log(`[AI-Prep] Extracting text for: ${result.file_name}`);
-          const rawText = await this.processingService.extractText(
-            result.file_url,
-            result.file_type,
-          );
+          const rawText =
+            await this.processingService.extractTextForQuestionAnswering(
+              result.file_url,
+              result.file_type,
+            );
           const chunks = this.processingService
             .splitTextIntoChunks(rawText)
             .filter((chunk) =>
@@ -215,18 +219,34 @@ export class FileUploadService {
         }
       } else if (isImage) {
         try {
-          this.logger.log(`[AI-Prep] Analyzing image: ${result.file_name}`);
-          const imageDescription = await this.aiService.analyzeImage(
-            file.buffer,
-            file.mimetype,
+          this.logger.log(
+            `[AI-Prep] Reading image text for: ${result.file_name}`,
           );
+          let imageContent = '';
+
+          try {
+            imageContent = await this.aiService.extractTextFromImage(
+              file.buffer,
+              file.mimetype,
+            );
+          } catch (ocrError: unknown) {
+            const message =
+              ocrError instanceof Error ? ocrError.message : 'Unknown error';
+            this.logger.warn(
+              `[AI-Prep] Image OCR failed: ${message}. Falling back to image description.`,
+            );
+            imageContent = await this.aiService.analyzeImage(
+              file.buffer,
+              file.mimetype,
+            );
+          }
 
           // Generate embedding for the image description
           let embedding: number[] | null = null;
           let embeddingFailed = false;
 
           try {
-            embedding = await this.aiService.getEmbedding(imageDescription);
+            embedding = await this.aiService.getEmbedding(imageContent);
           } catch (embeddingError: unknown) {
             const message =
               embeddingError instanceof Error
@@ -244,7 +264,7 @@ export class FileUploadService {
             .insert({
               document_id: dbDoc.id,
               user_id: userId,
-              content: imageDescription,
+              content: imageContent,
               embedding,
               metadata: {
                 type: 'image',
@@ -255,12 +275,12 @@ export class FileUploadService {
 
           if (chunkError) throw chunkError;
           this.logger.log(
-            `[AI-Ready] Successfully analyzed and stored image: ${dbDoc.id}`,
+            `[AI-Ready] Successfully read and stored image: ${dbDoc.id}`,
           );
         } catch (procError: unknown) {
           const message =
             procError instanceof Error ? procError.message : 'Unknown error';
-          this.logger.warn(`[AI-Prep] Image analysis failed: ${message}`);
+          this.logger.warn(`[AI-Prep] Image processing failed: ${message}`);
         }
       }
 

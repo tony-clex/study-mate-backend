@@ -16,9 +16,14 @@ VALUES (
   10485760, -- 10MB in bytes
   ARRAY[
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/gif',
     'image/webp',
+    'image/heic',
+    'image/heif',
+    'image/x-heic',
+    'image/x-heif',
     'application/pdf',
     'text/plain',
     'text/markdown',

@@ -428,7 +428,7 @@ export class ChatService {
 
   private async generateWithGemini(prompt: string): Promise<string> {
     const chatModel = this.genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-001',
+      model: 'gemini-2.0-flash',
     });
     const chatResult = await chatModel.generateContent(prompt);
     const response = chatResult.response;

@@ -98,6 +98,21 @@ export interface SearchHistoryItem {
   created_at: string;
 }
 
+export interface SearchCompanionDocument {
+  id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+export interface SearchCompanionResponse {
+  answer: string;
+  document: SearchCompanionDocument;
+  context_source: 'extracted_text' | 'metadata_only';
+}
+
 interface EmbeddingCacheEntry {
   embedding: number[];
   timestamp: number;
@@ -225,6 +240,54 @@ export class SearchService {
     }
 
     return (data as DocumentRow | null) ?? null;
+  }
+
+  private async getOwnedDocumentById(
+    userId: string,
+    documentId: string,
+  ): Promise<DocumentRow | null> {
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .select(
+        'id, user_id, file_name, file_url, file_type, file_size, created_at',
+      )
+      .eq('id', documentId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch document: ${error.message}`,
+      );
+    }
+
+    return (data as DocumentRow | null) ?? null;
+  }
+
+  private buildCompanionContext(
+    document: DocumentRow,
+    extractedText?: string,
+  ): string {
+    const cleanedText = extractedText?.trim();
+
+    if (cleanedText) {
+      return `Selected document:
+File name: ${document.file_name}
+File type: ${document.file_type}
+Document ID: ${document.id}
+
+Use the study text below as the primary source of truth.
+
+Study text:
+${cleanedText}`;
+    }
+
+    return `Selected document:
+File name: ${document.file_name}
+File type: ${document.file_type}
+Document ID: ${document.id}
+
+No readable study text could be extracted from this file yet. Use the document metadata only and be transparent about the limitation.`;
   }
 
   private async getDocumentsWithChunkIds(
@@ -737,5 +800,55 @@ export class SearchService {
     }
 
     return data || [];
+  }
+
+  async askCompanionAboutDocument(
+    userId: string,
+    documentId: string,
+    question: string,
+    history: any[] = [],
+  ): Promise<SearchCompanionResponse> {
+    const document = await this.getOwnedDocumentById(userId, documentId);
+
+    if (!document) {
+      throw new BadRequestException('Document not found');
+    }
+
+    let extractedText = '';
+    let contextSource: SearchCompanionResponse['context_source'] =
+      'metadata_only';
+
+    try {
+      extractedText =
+        await this.processingService.extractTextForQuestionAnswering(
+          document.file_url,
+          document.file_type,
+        );
+      contextSource = 'extracted_text';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `[Search] Could not extract study text for companion chat on ${document.id}: ${message}. Falling back to document metadata.`,
+      );
+    }
+
+    const aiResponse = await this.aiService.chatWithCompanion(
+      question,
+      history,
+      this.buildCompanionContext(document, extractedText),
+    );
+
+    return {
+      answer: aiResponse.text,
+      document: {
+        id: document.id,
+        file_name: document.file_name,
+        file_url: document.file_url,
+        file_type: document.file_type,
+        file_size: document.file_size,
+        created_at: document.created_at,
+      },
+      context_source: contextSource,
+    };
   }
 }
