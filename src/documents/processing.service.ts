@@ -39,6 +39,10 @@ export class ProcessingService {
     'image/webp',
     'image/gif',
     'image/bmp',
+    'image/heic',
+    'image/heif',
+    'image/x-heic',
+    'image/x-heif',
   ];
 
   constructor(private readonly aiService: AiService) {}

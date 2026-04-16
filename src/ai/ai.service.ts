@@ -24,6 +24,35 @@ export class AiService {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
   }
 
+  private normalizeImageMimeType(mimeType: string): string {
+    const normalized = (mimeType || 'image/jpeg')
+      .toLowerCase()
+      .split(';')[0]
+      .trim();
+
+    if (normalized === 'image/jpg' || normalized === 'image/pjpeg') {
+      return 'image/jpeg';
+    }
+
+    if (normalized === 'image/x-heic') {
+      return 'image/heic';
+    }
+
+    if (normalized === 'image/x-heif') {
+      return 'image/heif';
+    }
+
+    return normalized || 'image/jpeg';
+  }
+
+  private isHistoryEntry(value: unknown): value is {
+    role?: string;
+    content?: string;
+    text?: string;
+  } {
+    return typeof value === 'object' && value !== null;
+  }
+
   /**
    * Generates a vector embedding for a piece of text.
    * This allows Supabase to "search" by meaning rather than just keywords.
@@ -60,7 +89,7 @@ export class AiService {
   async generateAnswer(question: string, context: string): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
+        model: 'gemini-2.0-flash',
       });
 
       const prompt = `
@@ -289,7 +318,7 @@ INSTRUCTIONS:
     );
 
     const model = this.genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-001',
+      model: 'gemini-2.0-flash',
     });
 
     const pdfPart = {
@@ -336,7 +365,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3-8b-instruct',
+          model: 'google/gemini-2.0-flash-001',
           messages: [
             {
               role: 'user',
@@ -359,7 +388,7 @@ INSTRUCTIONS:
             {
               id: 'file-parser',
               pdf: {
-                engine: 'cloudflare-ai',
+                engine: 'mistral-ocr',
               },
             },
           ],
@@ -402,7 +431,7 @@ INSTRUCTIONS:
     this.logger.log('[AiService] Answering PDF question with Gemini...');
 
     const model = this.genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-001',
+      model: 'gemini-2.0-flash',
     });
 
     const pdfPart = {
@@ -448,7 +477,7 @@ INSTRUCTIONS:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3-8b-instruct',
+          model: 'google/gemini-2.0-flash-001',
           messages: [
             {
               role: 'user',
@@ -471,7 +500,7 @@ INSTRUCTIONS:
             {
               id: 'file-parser',
               pdf: {
-                engine: 'cloudflare-ai',
+                engine: 'mistral-ocr',
               },
             },
           ],
@@ -512,15 +541,16 @@ INSTRUCTIONS:
   async analyzeImage(imageBuffer: Buffer, mimeType: string): Promise<string> {
     try {
       this.logger.log(`[AiService] Analyzing image with Gemini Vision...`);
+      const normalizedMimeType = this.normalizeImageMimeType(mimeType);
 
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
+        model: 'gemini-2.0-flash',
       });
 
       const imagePart = {
         inlineData: {
           data: imageBuffer.toString('base64'),
-          mimeType: mimeType,
+          mimeType: normalizedMimeType,
         },
       };
 
@@ -556,6 +586,7 @@ Be thorough and descriptive.`;
     imageBuffer: Buffer,
     mimeType: string,
   ): Promise<string> {
+    const normalizedMimeType = this.normalizeImageMimeType(mimeType);
     const prompt = `You are performing OCR (Optical Character Recognition) for a study app.
 
 Your task is to extract ALL visible text from this image and transcribe it exactly as it appears.
@@ -571,7 +602,7 @@ Rules:
     try {
       return await this.extractTextFromImageWithGemini(
         imageBuffer,
-        mimeType,
+        normalizedMimeType,
         prompt,
       );
     } catch (geminiError: unknown) {
@@ -608,15 +639,16 @@ Rules:
     prompt: string,
   ): Promise<string> {
     this.logger.log('[AiService] Extracting image text with Gemini...');
+    const normalizedMimeType = this.normalizeImageMimeType(mimeType);
 
     const model = this.genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-001',
+      model: 'gemini-2.0-flash',
     });
 
     const imagePart = {
       inlineData: {
         data: imageBuffer.toString('base64'),
-        mimeType: mimeType,
+        mimeType: normalizedMimeType,
       },
     };
 
@@ -648,8 +680,9 @@ Rules:
     }
 
     this.logger.log('[AiService] Extracting image text with OpenRouter...');
+    const normalizedMimeType = this.normalizeImageMimeType(mimeType);
 
-    const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+    const dataUrl = `data:${normalizedMimeType};base64,${imageBuffer.toString('base64')}`;
     const response = await fetch(
       'https://openrouter.ai/api/v1/chat/completions',
       {
@@ -659,7 +692,7 @@ Rules:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3-8b-instruct',
+          model: 'google/gemini-2.0-flash-001',
           messages: [
             {
               role: 'user',
@@ -706,32 +739,212 @@ Rules:
     history: any[],
     context: string = '',
   ) {
-    try {
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
-        // tools: [{ googleSearch: {} }],
-      });
+    const prompt = this.buildCompanionPrompt(question, history, context);
 
-      const chat = model.startChat({ history });
+    const providers: Array<{
+      name: string;
+      generate: () => Promise<string>;
+    }> = [
+      {
+        name: 'gemini-2.5-flash',
+        generate: () =>
+          this.generateCompanionWithGemini(prompt, 'gemini-2.5-flash'),
+      },
+      {
+        name: 'gemini-2.0-flash',
+        generate: () =>
+          this.generateCompanionWithGemini(prompt, 'gemini-2.0-flash'),
+      },
+      {
+        name: 'groq',
+        generate: () => this.generateCompanionWithGroq(prompt),
+      },
+      {
+        name: 'openrouter',
+        generate: () => this.generateCompanionWithOpenRouter(prompt),
+      },
+    ];
 
-      const contextPrefix = context
-        ? `[FILE CONTEXT PROVIDED]:\n${context}\n\n---\n\n`
-        : '';
+    const errors: string[] = [];
 
-      const enhancedPrompt = `${contextPrefix}${question} 
-      \n\n(Instruction: You are a study companion. Use the provided context if available. If a visual would help explain a complex concept, start a new line with exactly: [GENERATE_IMAGE: description of image])`;
-
-      const result = await chat.sendMessage(enhancedPrompt);
-      const response = result.response;
-      const text = response.text();
-
-      return { text };
-    } catch (error) {
-      this.logger.error(`Companion Error: ${(error as Error).message}`);
-      return {
-        text: "I'm sorry, I'm having trouble connecting to my research tools right now.",
-      };
+    for (const provider of providers) {
+      try {
+        this.logger.log(
+          `[AiService] Trying companion provider: ${provider.name}`,
+        );
+        const text = await provider.generate();
+        this.logger.log(
+          `[AiService] Companion response generated with ${provider.name}`,
+        );
+        return { text };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`${provider.name}: ${message}`);
+        this.logger.warn(
+          `[AiService] Companion provider ${provider.name} failed: ${message}`,
+        );
+      }
     }
+
+    this.logger.error(`Companion Error: ${errors.join(' | ')}`);
+    return {
+      text: "I'm sorry, I'm having trouble connecting to my research tools right now.",
+    };
+  }
+
+  private buildHistoryTranscript(history: unknown[]): string {
+    if (!Array.isArray(history) || history.length === 0) {
+      return '';
+    }
+
+    return history
+      .map((entry: unknown) => {
+        if (typeof entry === 'string') {
+          return entry.trim();
+        }
+
+        if (!this.isHistoryEntry(entry)) {
+          return '';
+        }
+
+        const role = typeof entry.role === 'string' ? entry.role : 'message';
+        const content =
+          typeof entry.content === 'string'
+            ? entry.content.trim()
+            : typeof entry.text === 'string'
+              ? entry.text.trim()
+              : '';
+
+        if (!content) {
+          return '';
+        }
+
+        return `${role.toUpperCase()}: ${content}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private buildCompanionPrompt(
+    question: string,
+    history: unknown[],
+    context: string,
+  ): string {
+    const contextPrefix = context
+      ? `[FILE CONTEXT PROVIDED]:\n${context}\n\n---\n\n`
+      : '';
+
+    const historyText = this.buildHistoryTranscript(history);
+    const historyPrefix = historyText
+      ? `CHAT HISTORY:\n${historyText}\n\n---\n\n`
+      : '';
+
+    return `${contextPrefix}${historyPrefix}${question}
+
+(Instruction: You are a study companion. Use the provided context if available. If a visual would help explain a complex concept, start a new line with exactly: [GENERATE_IMAGE: description of image])`;
+  }
+
+  private async generateCompanionWithGemini(
+    prompt: string,
+    modelName: string,
+  ): Promise<string> {
+    const model = this.genAI.getGenerativeModel({
+      model: modelName,
+    });
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    if (!text) {
+      throw new Error(`Gemini model ${modelName} returned empty output.`);
+    }
+
+    return text;
+  }
+
+  private async generateCompanionWithGroq(prompt: string): Promise<string> {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      throw new Error('GROQ_API_KEY is not configured');
+    }
+
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Groq request failed with ${response.status}: ${errorText}`,
+      );
+    }
+
+    const completion = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const text = completion.choices?.[0]?.message?.content?.trim() || '';
+    if (!text) {
+      throw new Error('Groq returned empty companion output.');
+    }
+
+    return text;
+  }
+
+  private async generateCompanionWithOpenRouter(
+    prompt: string,
+  ): Promise<string> {
+    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+    if (!openRouterApiKey) {
+      throw new Error('OPENROUTER_API_KEY is not configured');
+    }
+
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openRouterApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-flash-1.5',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenRouter request failed with ${response.status}: ${errorText}`,
+      );
+    }
+
+    const completion = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const text = completion.choices?.[0]?.message?.content?.trim() || '';
+    if (!text) {
+      throw new Error('OpenRouter returned empty companion output.');
+    }
+
+    return text;
   }
 
   async processVoiceNote(

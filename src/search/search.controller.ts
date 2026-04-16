@@ -18,8 +18,10 @@ import {
   SearchResult,
   SearchHistoryItem,
   SearchFilters,
+  SearchCompanionResponse,
 } from './search.service';
 import { SearchQueryDto } from './dto/search-query.dto';
+import { SearchCompanionMessageDto } from './dto/search-companion-message.dto';
 
 interface AuthRequest {
   user: {
@@ -55,6 +57,8 @@ interface ReindexResponse {
     message?: string;
   }[];
 }
+
+type SearchCompanionMessageResponse = SearchCompanionResponse;
 
 @Controller('search')
 @UseGuards(JwtAuthGuard)
@@ -106,6 +110,30 @@ export class SearchController {
         has_more: results.length === searchDto.match_count,
       },
     };
+  }
+
+  @Post('companion/message')
+  @HttpCode(HttpStatus.OK)
+  async companionMessage(
+    @Request() req: AuthRequest,
+    @Body() body: SearchCompanionMessageDto,
+  ): Promise<SearchCompanionMessageResponse> {
+    const userId = req.user?.id ?? req.userId;
+    if (!userId) {
+      throw new Error('Authenticated user ID is missing from the request');
+    }
+
+    const documentId = body.documentId ?? body.document_id;
+    if (!documentId) {
+      throw new BadRequestException('documentId is required');
+    }
+
+    return this.searchService.askCompanionAboutDocument(
+      userId,
+      documentId,
+      body.question,
+      body.history || [],
+    );
   }
 
   @Post('stream')

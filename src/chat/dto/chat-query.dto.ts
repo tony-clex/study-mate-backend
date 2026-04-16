@@ -24,12 +24,20 @@ export class ChatQueryDto {
   history?: any[];
 
   @IsOptional()
-  @IsUrl({}, { message: 'attachmentUrl must be a valid URL' })
+  @IsString()
   attachmentUrl?: string;
 
   @IsOptional()
   @IsString()
   attachmentType?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentData?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentMimeType?: string;
 
   @IsOptional()
   @IsUUID('4', { message: 'documentId must be a valid UUID' })

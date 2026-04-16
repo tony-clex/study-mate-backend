@@ -1,4 +1,11 @@
-import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { ChatResponse, ChatService } from './chat.service';
 import { AiService } from '../ai/ai.service';
@@ -19,8 +26,89 @@ export class ChatController {
   private readonly supabase = supabaseAdmin;
   constructor(
     private readonly chatService: ChatService,
-    private readonly aiService: AiService, // 1. Added AiService here
+    private readonly aiService: AiService,
   ) {}
+
+  private parseDataUrl(
+    input: string,
+  ): { buffer: Buffer; mimeType: string } | null {
+    const match = input.match(
+      /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.*)$/s,
+    );
+    if (!match) {
+      return null;
+    }
+
+    const mimeType = match[1] || 'application/octet-stream';
+    return {
+      buffer: Buffer.from(match[2], 'base64'),
+      mimeType,
+    };
+  }
+
+  private async loadAttachment(
+    body: ChatQueryDto,
+  ): Promise<{ buffer: Buffer; mimeType?: string }> {
+    const directPayload = body.attachmentData?.trim();
+    const attachmentUrl = body.attachmentUrl?.trim();
+
+    if (directPayload) {
+      const parsedDataUrl = this.parseDataUrl(directPayload);
+      if (parsedDataUrl) {
+        return parsedDataUrl;
+      }
+
+      const mimeType = body.attachmentMimeType || body.attachmentType;
+      if (!mimeType) {
+        throw new BadRequestException(
+          'attachmentMimeType is required when sending raw base64 data',
+        );
+      }
+
+      return {
+        buffer: Buffer.from(directPayload, 'base64'),
+        mimeType,
+      };
+    }
+
+    if (!attachmentUrl) {
+      throw new BadRequestException(
+        'attachmentUrl or attachmentData is required for this mode',
+      );
+    }
+
+    const parsedDataUrl = this.parseDataUrl(attachmentUrl);
+    if (parsedDataUrl) {
+      return parsedDataUrl;
+    }
+
+    if (!/^https?:\/\//i.test(attachmentUrl)) {
+      const mimeType = body.attachmentMimeType || body.attachmentType;
+      if (mimeType) {
+        return {
+          buffer: Buffer.from(attachmentUrl, 'base64'),
+          mimeType,
+        };
+      }
+    }
+
+    const response = await fetch(attachmentUrl);
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Failed to fetch attachment: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const mimeType =
+      body.attachmentMimeType ||
+      body.attachmentType ||
+      response.headers.get('content-type')?.split(';')[0]?.trim();
+
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      mimeType: mimeType || undefined,
+    };
+  }
 
   // Existing PDF/Notes Chat
   @Post('ask')
@@ -46,19 +134,39 @@ export class ChatController {
     const userId = req.user.id;
     let contextText = '';
 
-    if (body.mode === 'pdf' && body.attachmentUrl) {
-      const response = await fetch(body.attachmentUrl);
-      const buffer = Buffer.from(await response.arrayBuffer());
+    if (body.mode === 'pdf' && (body.attachmentUrl || body.attachmentData)) {
+      const { buffer } = await this.loadAttachment(body);
       contextText = await this.aiService.extractStudyTextFromPdf(buffer);
-    } else if (body.mode === 'image' && body.attachmentUrl) {
-      const response = await fetch(body.attachmentUrl);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const mimeType = body.attachmentType || 'image/jpeg';
-      contextText = await this.aiService.analyzeImage(buffer, mimeType);
-    } else if (body.mode === 'audio' && body.attachmentUrl) {
-      const response = await fetch(body.attachmentUrl);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const transcription = await this.aiService.processVoiceNote(buffer);
+    } else if (
+      body.mode === 'image' &&
+      (body.attachmentUrl || body.attachmentData)
+    ) {
+      const { buffer, mimeType } = await this.loadAttachment(body);
+      try {
+        contextText = await this.aiService.extractTextFromImage(
+          buffer,
+          mimeType || 'image/jpeg',
+        );
+      } catch (ocrError) {
+        const message =
+          ocrError instanceof Error ? ocrError.message : 'Unknown error';
+        this.aiService['logger'].warn(
+          `[Chat] Image OCR failed: ${message}. Falling back to image description.`,
+        );
+        contextText = await this.aiService.analyzeImage(
+          buffer,
+          mimeType || 'image/jpeg',
+        );
+      }
+    } else if (
+      body.mode === 'audio' &&
+      (body.attachmentUrl || body.attachmentData)
+    ) {
+      const { buffer, mimeType } = await this.loadAttachment(body);
+      const transcription = await this.aiService.processVoiceNote(
+        buffer,
+        mimeType || 'audio/mp3',
+      );
       body.question = `${transcription} (Transcribed from voice: ${body.question})`;
     }
 
