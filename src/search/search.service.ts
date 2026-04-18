@@ -222,7 +222,8 @@ export class SearchService {
     return new Map((data || []).map((document) => [document.id, document]));
   }
 
-  private async getDocumentById(
+  async getDocumentById(
+    userId: string,
     documentId: string,
   ): Promise<DocumentRow | null> {
     const { data, error } = await supabaseAdmin
@@ -230,6 +231,7 @@ export class SearchService {
       .select(
         'id, user_id, file_name, file_url, file_type, file_size, created_at',
       )
+      .eq('user_id', userId)
       .eq('id', documentId)
       .maybeSingle();
 
@@ -240,6 +242,26 @@ export class SearchService {
     }
 
     return (data as DocumentRow | null) ?? null;
+  }
+
+  async getDocumentChunks(
+    userId: string,
+    documentId: string,
+  ): Promise<{ content: string }[]> {
+    const { data, error } = await supabaseAdmin
+      .from('document_chunks')
+      .select('content')
+      .eq('user_id', userId)
+      .eq('document_id', documentId)
+      .order('metadata->chunk_index', { ascending: true });
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch document chunks: ${error.message}`,
+      );
+    }
+
+    return (data as { content: string }[]) ?? [];
   }
 
   private async getOwnedDocumentById(
@@ -362,8 +384,11 @@ No readable study text could be extracted from this file yet. Use the document m
     );
   }
 
-  async reindexDocument(documentId: string): Promise<ReindexResult> {
-    const document = await this.getDocumentById(documentId);
+  async reindexDocument(
+    userId: string,
+    documentId: string,
+  ): Promise<ReindexResult> {
+    const document = await this.getDocumentById(userId, documentId);
 
     if (!document) {
       throw new BadRequestException('Document not found');
@@ -457,7 +482,9 @@ No readable study text could be extracted from this file yet. Use the document m
 
     const results: ReindexResult[] = [];
     for (const document of documentsToReindex) {
-      results.push(await this.reindexDocument(document.id));
+      if (document.id) {
+        results.push(await this.reindexDocument(document.user_id, document.id));
+      }
     }
 
     const succeeded = results.filter((item) => item.success).length;

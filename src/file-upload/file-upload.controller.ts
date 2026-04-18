@@ -43,6 +43,56 @@ export class FileUploadController {
     private readonly studySessionService: StudySessionService,
   ) {}
 
+  @Post('api/upload/json')
+  @HttpCode(HttpStatus.CREATED)
+  async uploadFileJson(
+    @Req() req: AuthenticatedRequest,
+    @Body()
+    body: {
+      fileData: string;
+      fileName: string;
+      fileType: string;
+      folder?: string;
+      session_id?: string;
+    },
+  ) {
+    console.log('[Upload JSON] Hit endpoint!');
+    console.log('[Upload JSON] Body keys:', Object.keys(body || {}));
+    console.log('[Upload JSON] Has fileData:', !!body?.fileData);
+    console.log('[Upload JSON] fileName:', body?.fileName);
+
+    if (!body?.fileData) {
+      console.log('[Upload JSON] Error - no fileData');
+      throw new BadRequestException('fileData is required');
+    }
+
+    const userId = req.user.id;
+    console.log('[Upload JSON] UserId:', userId);
+
+    try {
+      const buffer = Buffer.from(body.fileData, 'base64');
+      console.log('[Upload JSON] Buffer size:', buffer.length);
+
+      const result = await this.fileUploadService.uploadFile(
+        userId,
+        {
+          originalname: body.fileName || 'file',
+          mimetype: body.fileType || 'application/octet-stream',
+          size: buffer.length,
+          buffer,
+        },
+        typeof body.folder === 'string' ? body.folder : 'uploads',
+      );
+
+      console.log('[Upload JSON] Success:', result.file_name);
+      return { message: 'File uploaded', ...result };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      console.log('[Upload JSON] Error:', message);
+      throw e;
+    }
+  }
+
   @Post('api/upload')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
@@ -53,6 +103,8 @@ export class FileUploadController {
     @Body('session_id') sessionId?: string,
     @Body('sessionId') sessionIdAlt?: string,
   ) {
+    console.log('[Upload Multipart] Final attempt - file:', file);
+
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -67,7 +119,11 @@ export class FileUploadController {
         size: file.size,
         buffer: file.buffer,
       },
-      resolvedSessionId ? `sessions/${resolvedSessionId}` : folder || 'uploads',
+      resolvedSessionId
+        ? `sessions/${resolvedSessionId}`
+        : typeof folder === 'string'
+          ? folder
+          : 'uploads',
     );
 
     if (resolvedSessionId) {
