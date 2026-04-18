@@ -52,6 +52,18 @@ interface ProviderResult {
   provider: string;
 }
 
+export interface ChatMessageRecord {
+  id: string;
+  user_id: string;
+  session_id: string | null;
+  role: 'user' | 'assistant';
+  content: string | null;
+  attachment_url: string | null;
+  attachment_type: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -85,6 +97,26 @@ export class ChatService {
     private readonly processingService: ProcessingService,
     private readonly aiService: AiService,
   ) {}
+
+  async getSessionChatHistory(
+    userId: string,
+    sessionId: string,
+  ): Promise<ChatMessageRecord[]> {
+    const { data, error } = await this.supabase
+      .from('chat_messages')
+      .select(
+        'id, user_id, session_id, role, content, attachment_url, attachment_type, metadata, created_at',
+      )
+      .eq('user_id', userId)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to fetch chat history: ${error.message}`);
+    }
+
+    return (data || []) as ChatMessageRecord[];
+  }
 
   private hasExplicitFileContext(input: ChatQuestionInput): boolean {
     return Boolean(
