@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Post,
   Req,
+  Param,
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { ChatResponse, ChatService } from './chat.service';
+import { ChatMessageRecord, ChatResponse, ChatService } from './chat.service';
 import { AiService } from '../ai/ai.service';
 import { ChatQueryDto } from './dto/chat-query.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,6 +22,11 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
+interface ChatHistoryResponse {
+  sessionId: string;
+  messages: ChatMessageRecord[];
+}
+
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
@@ -28,6 +35,23 @@ export class ChatController {
     private readonly chatService: ChatService,
     private readonly aiService: AiService,
   ) {}
+
+  @Get('session/:sessionId/history')
+  async getSessionHistory(
+    @Req() req: AuthenticatedRequest,
+    @Param('sessionId') sessionId: string,
+  ): Promise<ChatHistoryResponse> {
+    const userId = req.user.id;
+    const messages = await this.chatService.getSessionChatHistory(
+      userId,
+      sessionId,
+    );
+
+    return {
+      sessionId,
+      messages,
+    };
+  }
 
   private parseDataUrl(
     input: string,
