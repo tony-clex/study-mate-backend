@@ -10,6 +10,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -225,6 +226,59 @@ export class SearchController {
     return this.searchService.getUserDocuments(userId);
   }
 
+  @Get('documents/:id')
+  async getDocumentById(
+    @Request() req: AuthRequest,
+    @Param('id') documentId: string,
+  ): Promise<{
+    id: string;
+    file_name: string;
+    file_url: string;
+    file_type: string;
+    file_size: number;
+    created_at: string;
+  }> {
+    const userId = req.user?.id ?? req.userId;
+    if (!userId) {
+      throw new Error('Authenticated user ID is missing from the request');
+    }
+
+    const document = await this.searchService.getDocumentById(
+      userId,
+      documentId,
+    );
+    if (!document) {
+      throw new BadRequestException('Document not found');
+    }
+
+    return document;
+  }
+
+  @Get('documents/:id/chunks')
+  async getDocumentChunks(
+    @Request() req: AuthRequest,
+    @Param('id') documentId: string,
+  ): Promise<{ chunks: { content: string }[] }> {
+    const userId = req.user?.id ?? req.userId;
+    if (!userId) {
+      throw new Error('Authenticated user ID is missing from the request');
+    }
+
+    const document = await this.searchService.getDocumentById(
+      userId,
+      documentId,
+    );
+    if (!document) {
+      throw new BadRequestException('Document not found');
+    }
+
+    const chunks = await this.searchService.getDocumentChunks(
+      userId,
+      documentId,
+    );
+    return { chunks };
+  }
+
   @Post('reindex')
   async reindexDocument(
     @Request() req: AuthRequest,
@@ -239,7 +293,10 @@ export class SearchController {
       throw new BadRequestException('document_id is required');
     }
 
-    const result = await this.searchService.reindexDocument(body.document_id);
+    const result = await this.searchService.reindexDocument(
+      userId,
+      body.document_id,
+    );
     return {
       total_documents: 1,
       processed_documents: 1,

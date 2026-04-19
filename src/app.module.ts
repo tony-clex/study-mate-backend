@@ -35,6 +35,7 @@ import { ProfileModule } from './profile/profile.module';
 import { DocumentsModule } from './documents/documents.module';
 import { ChatModule } from './chat/chat.module';
 import { SearchModule } from './search/search.module';
+import { FlashcardModule } from './flashcard/flashcard.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { SearchModule } from './search/search.module';
     ProfileModule,
     DocumentsModule,
     SearchModule,
+    FlashcardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

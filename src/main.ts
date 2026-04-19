@@ -35,7 +35,6 @@
 
 import 'reflect-metadata';
 import 'dotenv/config';
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { json } from 'express';
 import { AppModule } from './app.module';
@@ -48,11 +47,10 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 3000);
   const host = '0.0.0.0';
 
-  // Increase body limit for large file uploads (images, PDFs from mobile)
+  // Standard JSON parser with increased limit
   app.use(json({ limit: '50mb' }));
 
   // 1. ENABLE CORS
-  // Authorization is sent via Bearer tokens, so credentials are not needed.
   app.enableCors({
     origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
@@ -60,16 +58,7 @@ async function bootstrap() {
     credentials: false,
   });
 
-  // 2. VALIDATION
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: false,
-    }),
-  );
-
-  // 3. NETWORK BINDING
+  // 2. NETWORK BINDING
   await app.listen(port, host);
 
   console.log(`\n--- STUDY-MATE BACKEND STARTED ---`);
