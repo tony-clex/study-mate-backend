@@ -31,6 +31,12 @@ interface ChatAboutCardsDto {
   }>;
 }
 
+interface RegenerateCardDto {
+  cardId: string;
+  currentFront: string;
+  currentBack: string;
+}
+
 @Controller('flashcard')
 export class FlashcardController {
   private readonly logger = new Logger(FlashcardController.name);
@@ -72,5 +78,21 @@ export class FlashcardController {
     );
 
     return { success: true, response };
+  }
+
+  @Post('regenerate-card')
+  @HttpCode(HttpStatus.OK)
+  async regenerateCard(@Body() dto: RegenerateCardDto) {
+    this.logger.log(`[FlashcardController] Regenerating card ${dto.cardId}`);
+
+    // Regenerate by modifying with 'examples' to provide a fresh version
+    const updatedCard = await this.flashcardService.modifyCard({
+      cardId: dto.cardId,
+      modification: 'examples',
+      currentFront: dto.currentFront,
+      currentBack: dto.currentBack,
+    });
+
+    return { success: true, card: updatedCard };
   }
 }

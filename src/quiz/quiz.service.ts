@@ -28,6 +28,13 @@ interface QuizTopicInput {
   sourceText?: string;
 }
 
+interface GenerateQuizInput {
+  topic: string;
+  numQuestions: number;
+  fileName?: string;
+  sourceText?: string;
+}
+
 @Injectable()
 export class QuizService {
   private readonly logger = new Logger(QuizService.name);
@@ -202,6 +209,31 @@ Respond as a JSON array of topic strings.`;
       const err = error as Error;
       this.logger.error(`[QuizService] Topic suggestion error: ${err.message}`);
       return [];
+    }
+  }
+
+  async generateQuiz(input: GenerateQuizInput): Promise<{
+    questions: Array<{
+      question: string;
+      options: string[];
+      correctAnswer: string;
+      explanation: string;
+    }>;
+  }> {
+    try {
+      this.logger.log(
+        `[QuizService] Generating quiz for topic: ${input.topic}, ${input.numQuestions} questions`,
+      );
+
+      return await this.aiService.generateQuiz(
+        input.topic,
+        input.numQuestions,
+        input.sourceText,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`[QuizService] Quiz generation error: ${err.message}`);
+      throw new Error(`Failed to generate quiz: ${err.message}`);
     }
   }
 

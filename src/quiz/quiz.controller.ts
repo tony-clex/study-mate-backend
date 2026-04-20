@@ -31,6 +31,13 @@ interface SuggestTopicsDto {
   sourceText?: string;
 }
 
+interface GenerateQuizDto {
+  topic: string;
+  numQuestions: number;
+  fileName?: string;
+  sourceText?: string;
+}
+
 @Controller('quiz')
 export class QuizController {
   private readonly logger = new Logger(QuizController.name);
@@ -71,5 +78,17 @@ export class QuizController {
     const topics = await this.quizService.suggestTopics(dto);
 
     return { success: true, topics };
+  }
+
+  @Post('generate')
+  @HttpCode(HttpStatus.OK)
+  async generateQuiz(@Body() dto: GenerateQuizDto) {
+    this.logger.log(
+      `[QuizController] generateQuiz called for topic: ${dto.topic}, ${dto.numQuestions} questions`,
+    );
+
+    const result = await this.quizService.generateQuiz(dto);
+
+    return { success: true, ...result };
   }
 }

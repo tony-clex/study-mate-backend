@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import pdfParse from 'pdf-parse-fork';
 
 @Injectable()
 export class AiService {
@@ -140,7 +141,7 @@ Rules:
       const geminiMessage =
         geminiError instanceof Error ? geminiError.message : 'Unknown error';
       this.logger.warn(
-        `[AiService] Gemini PDF extraction failed: ${geminiMessage}. Trying OpenRouter...`,
+        `[AiService] Gemini PDF extraction failed (likely quota): ${geminiMessage}. Trying OpenRouter...`,
       );
 
       try {
@@ -155,9 +156,22 @@ Rules:
         this.logger.error(
           `OpenRouter PDF Extraction Error: ${openrouterMessage}`,
         );
-        throw new Error(
-          `Failed to extract study text from PDF: ${openrouterMessage}`,
-        );
+
+        // Final fallback: try Groq with text extraction (not vision)
+        try {
+          this.logger.warn(
+            '[AiService] Trying Groq text extraction as final fallback...',
+          );
+          return this.validatePdfExtractionOutput(
+            await this.extractPdfWithGroq(pdfBuffer),
+          );
+        } catch (groqError: unknown) {
+          const groqMessage =
+            groqError instanceof Error ? groqError.message : 'Unknown error';
+          throw new Error(
+            `All PDF extraction providers failed. Gemini: ${geminiMessage} | OpenRouter: ${openrouterMessage} | Groq: ${groqMessage}`,
+          );
+        }
       }
     }
   }
@@ -259,33 +273,44 @@ INSTRUCTIONS:
 
     this.logger.log('[AiService] Answering PDF question with Groq...');
 
+    // Groq has a 100MB request limit. For large PDFs, extract text first.
+    const pdfSizeMB = pdfBuffer.length / (1024 * 1024);
+    if (pdfSizeMB > 5) {
+      this.logger.warn(
+        `[AiService] PDF is ${pdfSizeMB.toFixed(1)}MB - too large for direct Groq vision. Extracting text first.`,
+      );
+      const extractedText = await this.extractPdfWithGroq(pdfBuffer);
+      return this.answerFromExtractedTextWithGroq(
+        extractedText,
+        question,
+        fileName,
+      );
+    }
+
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-    const response = await fetch(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${groqApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.2-90b-vision-preview',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `You are a brilliant study assistant. Read this PDF and answer the question.\n\nFile: ${fileName}\n\nQuestion: ${question}\n\nAnswer from the PDF contents:`,
-                },
-                { type: 'image_url', image_url: { url: dataUrl } },
-              ],
-            },
-          ],
-          temperature: 0.7,
-        }),
+    const response = await fetch('https://api.groq.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        model: 'llama-3.2-90b-vision-preview',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `You are a brilliant study assistant. Read this PDF and answer the question.\n\nFile: ${fileName}\n\nQuestion: ${question}\n\nAnswer from the PDF contents:`,
+              },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        temperature: 0.7,
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -355,6 +380,7 @@ INSTRUCTIONS:
       '[AiService] Extracting study text from PDF with OpenRouter...',
     );
 
+    // OpenRouter endpoint must include /api/ path and omit unsupported plugins
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const response = await fetch(
       'https://openrouter.ai/api/v1/chat/completions',
@@ -382,14 +408,6 @@ INSTRUCTIONS:
                   },
                 },
               ],
-            },
-          ],
-          plugins: [
-            {
-              id: 'file-parser',
-              pdf: {
-                engine: 'mistral-ocr',
-              },
             },
           ],
         }),
@@ -467,6 +485,7 @@ INSTRUCTIONS:
 
     this.logger.log('[AiService] Answering PDF question with OpenRouter...');
 
+    // OpenRouter endpoint must include /api/ path
     const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const response = await fetch(
       'https://openrouter.ai/api/v1/chat/completions',
@@ -494,14 +513,6 @@ INSTRUCTIONS:
                   },
                 },
               ],
-            },
-          ],
-          plugins: [
-            {
-              id: 'file-parser',
-              pdf: {
-                engine: 'mistral-ocr',
-              },
             },
           ],
         }),
@@ -533,6 +544,171 @@ INSTRUCTIONS:
       `[AiService] OpenRouter PDF answer complete: ${answer.length} characters`,
     );
     return answer;
+  }
+
+  /**
+   * Extracts text from a PDF using multiple strategies:
+   * 1. Local pdfParse (fast, no API limits)
+   * 2. If local yields poor text and PDF is small enough (<5MB), uses Groq vision API
+   */
+  async extractPdfWithGroq(pdfBuffer: Buffer): Promise<string> {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      throw new Error('GROQ_API_KEY is not configured');
+    }
+
+    this.logger.log('[AiService] Extracting PDF text with Groq...');
+
+    // Try local PDF parser first
+    try {
+      const localText = await pdfParse(pdfBuffer);
+      if (localText.text && localText.text.trim().length > 100) {
+        const normalized = localText.text.toLowerCase();
+        const isBlocked = this.blockedPdfExtractionPhrases.some((phrase) =>
+          normalized.includes(phrase),
+        );
+        if (!isBlocked && localText.text.length > 200) {
+          this.logger.log(
+            `[AiService] Using locally extracted PDF text (${localText.text.length} chars)`,
+          );
+          return localText.text;
+        }
+      }
+    } catch {
+      this.logger.debug('[AiService] Local PDF parser failed, continuing');
+    }
+
+    // If local parsing didn't yield good text, try Groq vision for small PDFs
+    const pdfSizeMB = pdfBuffer.length / (1024 * 1024);
+    if (pdfSizeMB > 5) {
+      throw new Error(
+        `PDF is ${pdfSizeMB.toFixed(1)}MB - too large for Groq vision. Local parser also failed.`,
+      );
+    }
+
+    this.logger.warn(
+      '[AiService] Local parser insufficient, attempting Groq vision for PDF...',
+    );
+    const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `You are performing OCR for a study app. Extract ALL visible text from this PDF exactly as it appears. Do not summarize. If no readable text, say: NO_READABLE_TEXT`,
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: dataUrl },
+                },
+              ],
+            },
+          ],
+          temperature: 0.1,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Groq vision request failed: ${response.status} - ${errorText}`,
+      );
+    }
+
+    const completion = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const extractedText =
+      completion.choices?.[0]?.message?.content?.trim() || '';
+
+    if (!extractedText) {
+      throw new Error('Groq vision returned empty PDF extraction');
+    }
+
+    if (
+      extractedText.toLowerCase().includes('no_readable_text') ||
+      extractedText.toLowerCase().includes('no readable')
+    ) {
+      throw new Error('No readable text found in PDF via Groq vision');
+    }
+
+    this.logger.log(
+      `[AiService] Groq vision PDF extraction complete: ${extractedText.length} characters`,
+    );
+    return extractedText;
+  }
+
+  private answerFromExtractedTextWithGroq(
+    extractedText: string,
+    question: string,
+    fileName: string,
+  ): Promise<string> {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      throw new Error('GROQ_API_KEY is not configured');
+    }
+
+    this.logger.log(
+      '[AiService] Answering question from extracted text with Groq...',
+    );
+
+    const prompt = `You are a brilliant study assistant. Read this extracted text from a PDF and answer the question.
+
+File: ${fileName}
+
+EXTRACTED TEXT:
+${extractedText.slice(0, 15000)}
+
+QUESTION: ${question}
+
+Answer from the PDF contents:`;
+
+    return fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          return res.text().then((text) => {
+            throw new Error(`Groq request failed with ${res.status}: ${text}`);
+          });
+        }
+        return res.json();
+      })
+      .then(
+        (completion: {
+          choices?: Array<{ message?: { content?: string } }>;
+        }) => {
+          const answer =
+            completion.choices?.[0]?.message?.content?.trim() || '';
+          if (!answer) {
+            throw new Error('Groq returned empty PDF answer');
+          }
+          return answer;
+        },
+      );
   }
 
   /**
@@ -881,6 +1057,7 @@ Rules:
           model: 'llama-3.1-8b-instant',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.7,
+          max_tokens: 1500,
         }),
       },
     );
@@ -921,7 +1098,7 @@ Rules:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-flash-1.5',
+          model: 'mistralai/mistral-7b-instruct:free',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.7,
         }),
@@ -972,6 +1149,289 @@ Rules:
     } catch (error) {
       this.logger.error(`Voice Processing Error: ${(error as Error).message}`);
       throw new Error('Failed to process voice note.');
+    }
+  }
+
+  async generateQuiz(
+    topic: string,
+    numQuestions: number,
+    sourceText?: string,
+  ): Promise<{
+    questions: Array<{
+      question: string;
+      options: string[];
+      correctAnswer: string;
+      explanation: string;
+    }>;
+  }> {
+    const prompt = this.buildQuizPrompt(topic, numQuestions, sourceText);
+    const providers: Array<{
+      name: string;
+      generate: () => Promise<string>;
+    }> = [];
+
+    // Try OpenRouter first (most reliable for quiz generation)
+    if (process.env.OPENROUTER_API_KEY) {
+      providers.push({
+        name: 'openrouter',
+        generate: () => this.generateQuizWithOpenRouter(prompt),
+      });
+    }
+
+    // Fallback to Groq
+    if (process.env.GROQ_API_KEY) {
+      providers.push({
+        name: 'groq',
+        generate: () => this.generateQuizWithGroq(prompt),
+      });
+    }
+
+    // Skip Gemini for quiz generation (free tier quota exhausted)
+    // Gemini is reserved for other features
+
+    if (providers.length === 0) {
+      throw new Error(
+        'No AI quiz providers configured. Set OPENROUTER_API_KEY or GROQ_API_KEY.',
+      );
+    }
+
+    const errors: string[] = [];
+
+    for (const provider of providers) {
+      try {
+        this.logger.log(
+          `[AiService] Trying quiz generation with ${provider.name}`,
+        );
+        const responseText = await provider.generate();
+        const quiz = this.parseQuizResponse(responseText);
+        this.logger.log(
+          `[AiService] Quiz generated successfully with ${provider.name}`,
+        );
+        return quiz;
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`${provider.name}: ${message}`);
+        this.logger.warn(
+          `[AiService] Quiz provider ${provider.name} failed: ${message}`,
+        );
+      }
+    }
+
+    this.logger.error(`Quiz Generation Error: ${errors.join(' | ')}`);
+    throw new Error(`Failed to generate quiz: ${errors.join(' | ')}`);
+  }
+
+  private buildQuizPrompt(
+    topic: string,
+    numQuestions: number,
+    sourceText?: string,
+  ): string {
+    const sourceContext = sourceText
+      ? `\n\nSOURCE MATERIAL:\n${sourceText.slice(0, 8000)}`
+      : '';
+
+    return `You are an expert educator creating a quiz for the StudyMate app.
+
+TOPIC: ${topic}
+NUMBER OF QUESTIONS: ${numQuestions}${sourceContext}
+
+INSTRUCTIONS:
+- Create ${numQuestions} multiple-choice questions
+- Each question must have exactly 4 options (A, B, C, D)
+- One option must be clearly correct
+- Include a brief explanation for why the answer is correct
+- Questions should test understanding, not just memorization
+- If source material is provided, base questions on it
+- Keep questions and explanations concise but informative
+
+Format your response as JSON with this exact structure:
+{
+  "questions": [
+    {
+      "question": "What is the capital of France?",
+      "options": ["London", "Paris", "Berlin", "Madrid"],
+      "correctAnswer": "Paris",
+      "explanation": "Paris is the capital and largest city of France."
+    }
+  ]
+}
+
+Respond with only the JSON, no additional text.`;
+  }
+
+  private extractJsonObject(text: string): string | null {
+    const start = text.indexOf('{');
+    if (start === -1) {
+      return null;
+    }
+
+    let depth = 0;
+    for (let i = start; i < text.length; i += 1) {
+      const char = text[i];
+      if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private parseQuizResponse(responseText: string): {
+    questions: Array<{
+      question: string;
+      options: string[];
+      correctAnswer: string;
+      explanation: string;
+    }>;
+  } {
+    type QuizData = {
+      questions: Array<{
+        question: string;
+        options: string[];
+        correctAnswer: string;
+        explanation: string;
+      }>;
+    };
+
+    const trimmed = responseText.trim();
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown as QuizData;
+      if (parsed?.questions && Array.isArray(parsed.questions)) {
+        return parsed;
+      }
+    } catch {
+      // fall through to extraction below
+    }
+
+    const jsonText = this.extractJsonObject(trimmed);
+    if (jsonText) {
+      try {
+        const parsed = JSON.parse(jsonText) as unknown as QuizData;
+        if (parsed?.questions && Array.isArray(parsed.questions)) {
+          return parsed;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[AiService] Quiz JSON parse error: ${(error as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.warn(
+      `[AiService] Quiz parse failure; response was: ${trimmed.substring(0, 500)}`,
+    );
+    throw new Error('Failed to parse quiz response');
+  }
+
+  private async generateQuizWithOpenRouter(prompt: string): Promise<string> {
+    try {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      if (!apiKey) {
+        throw new Error('OPENROUTER_API_KEY not configured');
+      }
+
+      this.logger.debug(
+        `[OpenRouter] Sending request with key: ${apiKey.substring(0, 10)}...`,
+      );
+
+      const response = await fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'openrouter/auto',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 1500,
+          }),
+        },
+      );
+
+      const responseStatus = response.status;
+      const responseBody = await response.text();
+
+      this.logger.debug(
+        `[OpenRouter] Response status: ${responseStatus}, body length: ${responseBody.length}`,
+      );
+
+      if (!response.ok) {
+        this.logger.error(
+          `[OpenRouter] Error response: ${responseBody.substring(0, 500)}`,
+        );
+        throw new Error(
+          `OpenRouter API error: ${responseStatus} ${responseBody}`,
+        );
+      }
+
+      const data = JSON.parse(responseBody) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      return data.choices?.[0]?.message?.content ?? '';
+    } catch (error) {
+      throw new Error(
+        `OpenRouter quiz generation failed: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async generateQuizWithGemini(prompt: string): Promise<string> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-001',
+      });
+
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      throw new Error(
+        `Gemini quiz generation failed: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async generateQuizWithGroq(prompt: string): Promise<string> {
+    try {
+      const response = await fetch(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'llama-3.1-8b-instant',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 1500,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Groq API error: ${response.status} ${errorBody}`);
+      }
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      return data.choices?.[0]?.message?.content ?? '';
+    } catch (error) {
+      throw new Error(
+        `Groq quiz generation failed: ${(error as Error).message}`,
+      );
     }
   }
 }
