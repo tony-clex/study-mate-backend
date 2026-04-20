@@ -1434,4 +1434,119 @@ Respond with only the JSON, no additional text.`;
       );
     }
   }
+
+  async generateText(prompt: string): Promise<string> {
+    const providers: Array<{
+      name: string;
+      generate: () => Promise<string>;
+    }> = [];
+
+    if (process.env.OPENROUTER_API_KEY) {
+      providers.push({
+        name: 'openrouter',
+        generate: () => this.generateTextWithOpenRouter(prompt),
+      });
+    }
+
+    if (process.env.GROQ_API_KEY) {
+      providers.push({
+        name: 'groq',
+        generate: () => this.generateTextWithGroq(prompt),
+      });
+    }
+
+    if (process.env.GEMINI_API_KEY) {
+      providers.push({
+        name: 'gemini',
+        generate: () => this.generateTextWithGemini(prompt),
+      });
+    }
+
+    if (providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const errors: string[] = [];
+
+    for (const provider of providers) {
+      try {
+        this.logger.log(`[AiService] generateText trying: ${provider.name}`);
+        const text = await provider.generate();
+        this.logger.log(`[AiService] generateText success: ${provider.name}`);
+        return text;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`${provider.name}: ${message}`);
+        this.logger.warn(
+          `[AiService] generateText ${provider.name} failed: ${message}`,
+        );
+      }
+    }
+
+    throw new Error(`All AI providers failed: ${errors.join(' | ')}`);
+  }
+
+  private async generateTextWithGemini(prompt: string): Promise<string> {
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+    });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  private async generateTextWithGroq(prompt: string): Promise<string> {
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Groq error: ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content?.trim() ?? '';
+  }
+
+  private async generateTextWithOpenRouter(prompt: string): Promise<string> {
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'mistralai/mistral-7b-instruct:free',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`OpenRouter error: ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content?.trim() ?? '';
+  }
 }

@@ -1,12 +1,26 @@
 import {
   Controller,
   Post,
+  Get,
+  Delete,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
   Logger,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    email?: string;
+  };
+  userId: string;
+}
 
 interface ExplainAnswerDto {
   question: string;
@@ -39,6 +53,7 @@ interface GenerateQuizDto {
 }
 
 @Controller('quiz')
+@UseGuards(JwtAuthGuard)
 export class QuizController {
   private readonly logger = new Logger(QuizController.name);
 
@@ -82,12 +97,48 @@ export class QuizController {
 
   @Post('generate')
   @HttpCode(HttpStatus.OK)
-  async generateQuiz(@Body() dto: GenerateQuizDto) {
+  async generateQuiz(
+    @Body() dto: GenerateQuizDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
     this.logger.log(
       `[QuizController] generateQuiz called for topic: ${dto.topic}, ${dto.numQuestions} questions`,
     );
 
-    const result = await this.quizService.generateQuiz(dto);
+    const result = await this.quizService.generateQuiz(req.userId, dto);
+
+    return { success: true, ...result };
+  }
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  async getAllQuizzes(@Request() req: AuthenticatedRequest) {
+    this.logger.log(`[QuizController] getAllQuizzes called`);
+
+    const result = await this.quizService.findAll(req.userId);
+
+    return { success: true, ...result };
+  }
+
+  @Get(':id')
+  @HttpCode(HttpStatus.OK)
+  async getQuiz(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    this.logger.log(`[QuizController] getQuiz called - id: ${id}`);
+
+    const quiz = await this.quizService.findById(req.userId, id);
+
+    return { success: true, quiz };
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  async deleteQuiz(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    this.logger.log(`[QuizController] deleteQuiz called - id: ${id}`);
+
+    const result = await this.quizService.delete(req.userId, id);
 
     return { success: true, ...result };
   }

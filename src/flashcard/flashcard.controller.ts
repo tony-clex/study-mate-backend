@@ -37,7 +37,7 @@ interface RegenerateCardDto {
   currentBack: string;
 }
 
-@Controller('flashcard')
+@Controller('flashcards')
 export class FlashcardController {
   private readonly logger = new Logger(FlashcardController.name);
 

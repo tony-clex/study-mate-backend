@@ -62,21 +62,10 @@ export class FlashcardService {
         `[FlashcardService] Generating ${input.numCards} flashcards for ${input.fileName}`,
       );
 
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
-      });
-
       const sourceText = input.sourceText || '';
       const truncatedText = sourceText.slice(0, 18000);
 
-      const result: GenerateContentResult = await model.generateContent({
-        contents: [
-          { role: 'user', parts: [{ text: FLASHCARD_SYSTEM_PROMPT }] },
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `Generate exactly ${input.numCards} flashcards based on the following content:
+      const prompt = `Generate exactly ${input.numCards} flashcards based on the following content:
 ${truncatedText}
 
 Return ONLY a valid JSON array (no other text) with exactly ${input.numCards} cards. Each card must have:
@@ -88,32 +77,152 @@ Follow the rules:
 1. Atomic Design: Each card contains only ONE discrete idea
 2. Front/Back Format: JSON with 'front' and 'back' keys
 3. Active Recall: Phrase as question or fill-in-the-blank
-4. Quality: Focus on important concepts (max 15 unless requested)`,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.95,
-          topK: 40,
-        },
-      });
+4. Quality: Focus on important concepts (max 15 unless requested)`;
 
-      const responseText: string = result.response.text();
-      const cards = this.parseFlashcardsJson(responseText, input.numCards);
+      const providers: Array<{
+        name: string;
+        generate: () => Promise<string>;
+      }> = [];
 
-      return {
-        id: `deck-${Date.now()}`,
-        title: `${input.fileName} Flashcards`,
-        cardCount: cards.length,
-        cards,
-      };
+      if (process.env.OPENROUTER_API_KEY) {
+        providers.push({
+          name: 'openrouter',
+          generate: () =>
+            this.generateWithOpenRouter(FLASHCARD_SYSTEM_PROMPT, prompt),
+        });
+      }
+
+      if (process.env.GROQ_API_KEY) {
+        providers.push({
+          name: 'groq',
+          generate: () => this.generateWithGroq(prompt),
+        });
+      }
+
+      if (process.env.GEMINI_API_KEY) {
+        providers.push({
+          name: 'gemini',
+          generate: () => this.generateWithGemini(prompt),
+        });
+      }
+
+      if (providers.length === 0) {
+        throw new Error(
+          'No AI providers configured. Set OPENROUTER_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY.',
+        );
+      }
+
+      const errors: string[] = [];
+      for (const provider of providers) {
+        try {
+          this.logger.log(`[FlashcardService] Trying ${provider.name}...`);
+          const responseText = await provider.generate();
+          const cards = this.parseFlashcardsJson(responseText, input.numCards);
+
+          if (cards.length > 0) {
+            return {
+              id: `deck-${Date.now()}`,
+              title: `${input.fileName} Flashcards`,
+              cardCount: cards.length,
+              cards,
+            };
+          }
+        } catch (error) {
+          const err = error as Error;
+          errors.push(`${provider.name}: ${err.message}`);
+          this.logger.warn(
+            `[FlashcardService] ${provider.name} failed: ${err.message}`,
+          );
+        }
+      }
+
+      throw new Error(`All providers failed: ${errors.join(' | ')}`);
     } catch (error) {
       const err = error as Error;
       this.logger.error(`[FlashcardService] Generation error: ${err.message}`);
       throw new Error(`Failed to generate flashcards: ${err.message}`);
     }
+  }
+
+  private async generateWithGemini(prompt: string): Promise<string> {
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-001',
+    });
+    const result: GenerateContentResult = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  private async generateWithOpenRouter(
+    systemPrompt: string,
+    userPrompt: string,
+  ): Promise<string> {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENROUTER_API_KEY not configured');
+    }
+
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-001',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.7,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenRouter error: ${response.status} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content ?? '';
+  }
+
+  private async generateWithGroq(prompt: string): Promise<string> {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      throw new Error('GROQ_API_KEY not configured');
+    }
+
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 2000,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq error: ${response.status} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content ?? '';
   }
 
   async modifyCard(input: CardModificationInput): Promise<GeneratedCard> {

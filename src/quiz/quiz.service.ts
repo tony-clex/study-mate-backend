@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
 import {
-  GoogleGenerativeAI,
-  GenerateContentResult,
-} from '@google/generative-ai';
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { supabaseAdmin } from '../config/supabase.client';
 import { AiService } from '../ai/ai.service';
 
 interface QuizExplanationInput {
@@ -35,15 +37,49 @@ interface GenerateQuizInput {
   sourceText?: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: string;
+  explanation: string;
+}
+
+interface QuizDbRow {
+  id: string;
+  user_id: string;
+  title: string;
+  topic: string | null;
+  questions: QuizQuestion[];
+  num_questions: number;
+  source_file_name: string | null;
+  created_at: string;
+}
+
+export interface QuizResponse {
+  id: string;
+  userId: string;
+  title: string;
+  topic: string | null;
+  questions: QuizQuestion[];
+  numQuestions: number;
+  sourceFileName: string | null;
+  createdAt: string;
+}
+
+export interface QuizListResponse {
+  quizzes: QuizResponse[];
+  total: number;
+}
+
+interface SupabaseError {
+  message: string;
+}
+
 @Injectable()
 export class QuizService {
   private readonly logger = new Logger(QuizService.name);
-  private readonly genAI: GoogleGenerativeAI;
 
-  constructor(private readonly aiService: AiService) {
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    this.genAI = new GoogleGenerativeAI(apiKey);
-  }
+  constructor(private readonly aiService: AiService) {}
 
   async explainAnswer(input: QuizExplanationInput): Promise<{
     explanation: string;
@@ -54,10 +90,6 @@ export class QuizService {
       this.logger.log(
         `[QuizService] Explaining answer for question ${input.questionId}`,
       );
-
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
-      });
 
       const sourceContext = input.sourceText
         ? `\n\nSOURCE MATERIAL:\n${input.sourceText.slice(0, 8000)}`
@@ -76,20 +108,19 @@ RESULT: ${correctness}${sourceContext}
 
 INSTRUCTIONS:
 - If the answer is correct: Provide encouragement and briefly explain WHY it's correct
-- If the answer is incorrect: Explain the误区 (misconception) simply and guide to the correct understanding
+- If the answer is incorrect: Explain the misconception simply and guide to the correct understanding
 - Keep your response concise and encouraging
 - Use a warm, supportive tone
 - If source material is available, tie your explanation to specific facts from it
 
 Format your response as JSON with this exact structure:
 {
-  "explanation": "Your 1-2 sentence explanation of why the answer is correct or what was misunderstood",
-  "deeperExplanation": "A slightly more detailed explanation that adds context (can be empty if not needed)",
-  "relatedConcept": "A related concept from the material that might help (or null if not applicable)"
+  "explanation": "Your 1-2 sentence explanation",
+  "deeperExplanation": "More detailed explanation (can be empty)",
+  "relatedConcept": "Related concept or null"
 }`;
 
-      const result: GenerateContentResult = await model.generateContent(prompt);
-      const responseText: string = result.response.text();
+      const responseText = await this.aiService.generateText(prompt);
 
       const parsed = this.parseJsonResponse(responseText);
 
@@ -121,10 +152,6 @@ Format your response as JSON with this exact structure:
         `[QuizService] Generating hint for question ${input.questionId}`,
       );
 
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
-      });
-
       const attemptedText =
         input.attemptedAnswers.length > 0
           ? `\n\nAlready attempted: ${input.attemptedAnswers.join(', ')}`
@@ -140,12 +167,11 @@ INSTRUCTIONS:
 - Do NOT give away the answer directly
 - Guide their thinking without solving it for them
 - Keep it to 1-2 sentences
-- Use a encouraging tone
+- Use an encouraging tone
 
 Respond with just the hint text, no extra formatting.`;
 
-      const result: GenerateContentResult = await model.generateContent(prompt);
-      const hintText: string = result.response.text();
+      const hintText = await this.aiService.generateText(prompt);
       return hintText.trim();
     } catch (error) {
       const err = error as Error;
@@ -159,10 +185,6 @@ Respond with just the hint text, no extra formatting.`;
       this.logger.log(
         `[QuizService] Suggesting topics for quiz: ${input.quizTitle}`,
       );
-
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-001',
-      });
 
       const sourceContext = input.sourceText
         ? `\n\nSOURCE MATERIAL (excerpt):\n${input.sourceText.slice(0, 5000)}`
@@ -181,8 +203,7 @@ INSTRUCTIONS:
 
 Respond as a JSON array of topic strings.`;
 
-      const result: GenerateContentResult = await model.generateContent(prompt);
-      const responseText: string = result.response.text();
+      const responseText = await this.aiService.generateText(prompt);
 
       const parsed = this.parseJsonResponse(responseText, true);
 
@@ -212,29 +233,137 @@ Respond as a JSON array of topic strings.`;
     }
   }
 
-  async generateQuiz(input: GenerateQuizInput): Promise<{
-    questions: Array<{
-      question: string;
-      options: string[];
-      correctAnswer: string;
-      explanation: string;
-    }>;
-  }> {
+  async generateQuiz(
+    userId: string,
+    input: GenerateQuizInput,
+  ): Promise<QuizResponse> {
     try {
       this.logger.log(
         `[QuizService] Generating quiz for topic: ${input.topic}, ${input.numQuestions} questions`,
       );
 
-      return await this.aiService.generateQuiz(
+      const questions = await this.aiService.generateQuiz(
         input.topic,
         input.numQuestions,
         input.sourceText,
       );
+
+      const title = `Quiz: ${input.topic}`;
+
+      const { data, error } = (await supabaseAdmin
+        .from('quizzes')
+        .insert({
+          user_id: userId,
+          title,
+          topic: input.topic,
+          questions: questions.questions,
+          num_questions: input.numQuestions,
+          source_file_name: input.fileName || null,
+        })
+        .select()
+        .single()) as { data: QuizDbRow | null; error: SupabaseError | null };
+
+      if (error) {
+        this.logger.error(`[QuizService] Save quiz error: ${error.message}`);
+        throw new BadRequestException('Failed to save quiz');
+      }
+
+      if (!data) {
+        throw new BadRequestException('Failed to save quiz: no data returned');
+      }
+
+      return {
+        id: data.id,
+        userId: data.user_id,
+        title: data.title,
+        topic: data.topic,
+        questions: data.questions,
+        numQuestions: data.num_questions,
+        sourceFileName: data.source_file_name,
+        createdAt: data.created_at,
+      };
     } catch (error) {
       const err = error as Error;
       this.logger.error(`[QuizService] Quiz generation error: ${err.message}`);
       throw new Error(`Failed to generate quiz: ${err.message}`);
     }
+  }
+
+  async findById(userId: string, quizId: string): Promise<QuizResponse> {
+    this.logger.log(`[QuizService] findById called - quizId: ${quizId}`);
+
+    const { data, error } = (await supabaseAdmin
+      .from('quizzes')
+      .select('*')
+      .eq('id', quizId)
+      .eq('user_id', userId)
+      .single()) as { data: QuizDbRow | null; error: SupabaseError | null };
+
+    if (error || !data) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      title: data.title,
+      topic: data.topic,
+      questions: data.questions,
+      numQuestions: data.num_questions,
+      sourceFileName: data.source_file_name,
+      createdAt: data.created_at,
+    };
+  }
+
+  async findAll(userId: string): Promise<QuizListResponse> {
+    this.logger.log(`[QuizService] findAll called - userId: ${userId}`);
+
+    const { data, error } = (await supabaseAdmin
+      .from('quizzes')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })) as {
+      data: QuizDbRow[] | null;
+      error: SupabaseError | null;
+    };
+
+    if (error) {
+      this.logger.error(`[QuizService] findAll error: ${error.message}`);
+      throw new BadRequestException('Failed to fetch quizzes');
+    }
+
+    const quizzes = (data ?? []).map((quiz) => ({
+      id: quiz.id,
+      userId: quiz.user_id,
+      title: quiz.title,
+      topic: quiz.topic,
+      questions: quiz.questions,
+      numQuestions: quiz.num_questions,
+      sourceFileName: quiz.source_file_name,
+      createdAt: quiz.created_at,
+    }));
+
+    return {
+      quizzes,
+      total: quizzes.length,
+    };
+  }
+
+  async delete(userId: string, quizId: string): Promise<{ message: string }> {
+    await this.findById(userId, quizId);
+
+    const { error } = await supabaseAdmin
+      .from('quizzes')
+      .delete()
+      .eq('id', quizId)
+      .eq('user_id', userId);
+
+    if (error) {
+      this.logger.error(`[QuizService] delete error: ${error.message}`);
+      throw new BadRequestException('Failed to delete quiz');
+    }
+
+    return { message: 'Quiz deleted successfully' };
   }
 
   private parseJsonResponse(text: string, isArray = false): unknown {
