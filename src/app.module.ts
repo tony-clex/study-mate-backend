@@ -36,6 +36,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { ChatModule } from './chat/chat.module';
 import { SearchModule } from './search/search.module';
 import { FlashcardModule } from './flashcard/flashcard.module';
+import { QuizModule } from './quiz/quiz.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { FlashcardModule } from './flashcard/flashcard.module';
     DocumentsModule,
     SearchModule,
     FlashcardModule,
+    QuizModule,
   ],
   controllers: [AppController],
   providers: [AppService],

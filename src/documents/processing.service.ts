@@ -250,7 +250,7 @@ export class ProcessingService {
             );
 
             try {
-              extractedText = await this.extractPdfWithGroq(buffer);
+              extractedText = await this.aiService.extractPdfWithGroq(buffer);
               this.logger.log('[AI-Prep] Groq successfully extracted PDF text');
             } catch (groqError: unknown) {
               const groqMessage =
@@ -346,70 +346,7 @@ export class ProcessingService {
   }
 
   private async extractPdfWithGroq(pdfBuffer: Buffer): Promise<string> {
-    const groqApiKey = process.env.GROQ_API_KEY;
-    if (!groqApiKey) {
-      throw new Error('GROQ_API_KEY is not configured');
-    }
-
-    this.logger.log('[AI-Prep] Extracting PDF text with Groq...');
-
-    const dataUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-    const response = await fetch(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${groqApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `You are performing OCR for a study app. Extract ALL visible text from this PDF exactly as it appears. Do not summarize. If no readable text, say: NO_READABLE_TEXT`,
-                },
-                {
-                  type: 'image_url',
-                  image_url: { url: dataUrl },
-                },
-              ],
-            },
-          ],
-          temperature: 0.1,
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Groq request failed: ${response.status} - ${errorText}`);
-    }
-
-    const completion = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const extractedText =
-      completion.choices?.[0]?.message?.content?.trim() || '';
-
-    if (!extractedText) {
-      throw new Error('Groq returned empty PDF extraction');
-    }
-
-    if (
-      extractedText.toLowerCase().includes('no_readable_text') ||
-      extractedText.toLowerCase().includes('no readable')
-    ) {
-      throw new Error('No readable text found in PDF');
-    }
-
-    this.logger.log(
-      `[AI-Prep] Groq PDF extraction complete: ${extractedText.length} characters`,
-    );
-    return extractedText;
+    // Delegate to AiService which handles size limits and fallbacks
+    return this.aiService.extractPdfWithGroq(pdfBuffer);
   }
 }
