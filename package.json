@@ -10,7 +10,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "lint": "eslint . --ext .ts,.js --ignore-pattern 'dist/**'",
     "lint:fix": "eslint . --ext .ts,.js --fix --ignore-pattern 'dist/**'",
     "format": "prettier --write .",
