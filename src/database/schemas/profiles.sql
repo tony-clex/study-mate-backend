@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS public.profiles (
+                                                                                                                                                                                                                                                                                                                                                            CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,
   full_name TEXT,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Create policies for profiles
+-- Create policies for profiles       
 -- Allow users to read their own profile
 CREATE POLICY "Users can view their own profile"
 ON public.profiles
@@ -21,7 +21,7 @@ TO authenticated
 USING (auth.uid() = id);
 
 -- Allow users to insert their own profile (for registration flow)
-CREATE POLICY "Users can insert their own profile"
+CREATE POLICY "Users can insert their own profile"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
 ON public.profiles
 FOR INSERT
 TO authenticated

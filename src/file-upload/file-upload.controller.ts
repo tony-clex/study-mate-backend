@@ -95,7 +95,9 @@ export class FileUploadController {
 
   @Post('api/upload')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }),
+  )
   async uploadFile(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: MulterFile,
@@ -184,7 +186,9 @@ export class FileUploadController {
 
   @Post('session/:id')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }),
+  )
   async uploadSessionFile(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: MulterFile,

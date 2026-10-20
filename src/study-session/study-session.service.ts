@@ -526,6 +526,7 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { supabaseAdmin } from '../config/supabase.client';
 import {
@@ -533,6 +534,11 @@ import {
   UpdateStudySessionDto,
   StudySessionResponse,
   StudySessionListResponse,
+  StudySessionStatus,
+  StudySessionNotificationResponse,
+  StudySessionNotificationType,
+  UpdateStudySessionCheckpointDto,
+  UpdateStudySessionStateDto,
   CreateSessionNoteDto,
   UpdateSessionNoteDto,
   SessionNoteResponse,
@@ -547,7 +553,15 @@ interface StudySessionDbRow {
   user_id: string;
   title: string;
   subject: string | null;
+  scheduled_start_at: string | null;
+  planned_duration_minutes: number | null;
+  status: StudySessionStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  last_checkpoint: Record<string, unknown> | null;
+  last_checkpoint_at: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 interface SessionNoteDbRow {
@@ -596,34 +610,107 @@ interface SupabaseError {
   message: string;
 }
 
+function mapSessionRow(row: StudySessionDbRow): StudySessionResponse {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    title: row.title,
+    subject: row.subject,
+    scheduled_start_at: row.scheduled_start_at,
+    planned_duration_minutes: row.planned_duration_minutes,
+    status: row.status,
+    started_at: row.started_at,
+    completed_at: row.completed_at,
+    last_checkpoint: row.last_checkpoint,
+    last_checkpoint_at: row.last_checkpoint_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 @Injectable()
 export class StudySessionService {
+  private readonly logger = new Logger(StudySessionService.name);
+
   async create(
     userId: string,
     createDto: CreateStudySessionDto,
   ): Promise<StudySessionResponse> {
-    const { title, subject } = createDto;
+    const { title, subject, scheduledStartAt, plannedDurationMinutes } =
+      createDto;
 
     if (!title || title.trim().length === 0) {
       throw new BadRequestException('Title cannot be empty');
     }
 
-    console.log(
-      `[StudySession] create called - userId: ${userId}, title: ${title}`,
-    );
+    const nowIso = new Date().toISOString();
+    const status = scheduledStartAt
+      ? StudySessionStatus.SCHEDULED
+      : StudySessionStatus.DRAFT;
 
-    const { data, error } = (await supabaseAdmin
-      .from('study_sessions')
-      .insert({
+    const baseInsertData: Record<string, unknown> = {
+      user_id: userId,
+      title: title.trim(),
+      status,
+      updated_at: nowIso,
+    };
+
+    if (subject?.trim()) {
+      baseInsertData.subject = subject.trim();
+    }
+
+    if (scheduledStartAt) {
+      baseInsertData.scheduled_start_at = scheduledStartAt;
+    }
+
+    if (
+      plannedDurationMinutes !== undefined &&
+      plannedDurationMinutes !== null
+    ) {
+      baseInsertData.planned_duration_minutes = plannedDurationMinutes;
+    }
+
+    const insertVariants: Record<string, unknown>[] = [
+      baseInsertData,
+      {
         user_id: userId,
         title: title.trim(),
-        subject: subject?.trim() || null,
-      })
-      .select()
-      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+        updated_at: nowIso,
+      },
+    ];
+
+    let data: StudySessionDbRow | null = null;
+    let error: SupabaseError | null = null;
+
+    for (const payload of insertVariants) {
+      const result = (await supabaseAdmin
+        .from('study_sessions')
+        .insert(payload)
+        .select()
+        .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+      data = result.data;
+      error = result.error;
+
+      if (!error) {
+        break;
+      }
+
+      if (
+        !/Could not find the '.*' column of 'study_sessions' in the schema cache/i.test(
+          error.message,
+        )
+      ) {
+        break;
+      }
+
+      this.logger.warn(
+        `[create] Retrying session insert with reduced payload because Supabase schema cache rejected a column: ${error.message}`,
+      );
+    }
 
     if (error) {
-      console.log(`[StudySession] create error: ${error.message}`);
+      this.logger.error(`[create] Supabase insert failed: ${error.message}`);
       mapSupabaseError(error, 'create session');
     }
 
@@ -633,19 +720,10 @@ export class StudySessionService {
       );
     }
 
-    console.log(`[StudySession] created - sessionId: ${data.id}`);
-    return {
-      id: data.id,
-      user_id: data.user_id,
-      title: data.title,
-      subject: data.subject,
-      created_at: data.created_at,
-    };
+    return mapSessionRow(data);
   }
 
   async findAll(userId: string): Promise<StudySessionListResponse> {
-    console.log(`[StudySession] findAll called - userId: ${userId}`);
-
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
@@ -656,21 +734,10 @@ export class StudySessionService {
     };
 
     if (error) {
-      console.log(`[StudySession] findAll error: ${error.message}`);
       mapSupabaseError(error, 'fetch sessions');
     }
 
-    console.log(
-      `[StudySession] findAll returned ${data?.length ?? 0} sessions`,
-    );
-
-    const sessions: StudySessionResponse[] = (data ?? []).map((session) => ({
-      id: session.id,
-      user_id: session.user_id,
-      title: session.title,
-      subject: session.subject,
-      created_at: session.created_at,
-    }));
+    const sessions: StudySessionResponse[] = (data ?? []).map(mapSessionRow);
 
     return {
       sessions,
@@ -678,14 +745,108 @@ export class StudySessionService {
     };
   }
 
+  async findUnfinished(userId: string): Promise<StudySessionListResponse> {
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .neq('status', StudySessionStatus.COMPLETED)
+      .order('updated_at', { ascending: false })) as {
+      data: StudySessionDbRow[] | null;
+      error: SupabaseError;
+    };
+
+    if (error) {
+      mapSupabaseError(error, 'fetch unfinished sessions');
+    }
+
+    const nowIso = new Date().toISOString();
+    const unfinished = (data ?? []).filter((session) => {
+      if (session.status === StudySessionStatus.COMPLETED) {
+        return false;
+      }
+
+      if (session.status === StudySessionStatus.SCHEDULED) {
+        return Boolean(
+          session.scheduled_start_at &&
+          new Date(session.scheduled_start_at).getTime() <=
+            new Date(nowIso).getTime(),
+        );
+      }
+
+      return true;
+    });
+
+    const sessions = unfinished.map(mapSessionRow);
+
+    return {
+      sessions,
+      total: sessions.length,
+    };
+  }
+
+  async getNotifications(userId: string): Promise<{
+    notifications: StudySessionNotificationResponse[];
+    total: number;
+  }> {
+    const unfinished = await this.findUnfinished(userId);
+    const nowIso = new Date().toISOString();
+
+    const notifications = unfinished.sessions.map((session) => {
+      const isScheduled =
+        session.status === StudySessionStatus.SCHEDULED &&
+        Boolean(session.scheduled_start_at);
+      const isPaused = session.status === StudySessionStatus.PAUSED;
+      const isInProgress = session.status === StudySessionStatus.IN_PROGRESS;
+
+      const type = isScheduled
+        ? StudySessionNotificationType.SCHEDULED_SESSION
+        : isPaused || isInProgress
+          ? StudySessionNotificationType.RESUME_SESSION
+          : StudySessionNotificationType.UNFINISHED_SESSION;
+
+      const dueAt =
+        session.last_checkpoint_at ||
+        session.started_at ||
+        session.scheduled_start_at ||
+        session.updated_at ||
+        nowIso;
+
+      const message = isScheduled
+        ? `Your study session "${session.title}" is scheduled for ${session.scheduled_start_at}.`
+        : session.last_checkpoint
+          ? `You left off in "${session.title}". Tap to resume from your last checkpoint.`
+          : `You have an unfinished study session: "${session.title}". Tap to continue.`;
+
+      return {
+        id: `study-session-${session.id}`,
+        session_id: session.id,
+        title:
+          type === StudySessionNotificationType.SCHEDULED_SESSION
+            ? 'Upcoming study session'
+            : 'Unfinished study session',
+        message,
+        type,
+        status: session.status,
+        due_at: dueAt,
+        action: 'resume' as const,
+        action_payload: {
+          sessionId: session.id,
+        },
+        created_at: session.updated_at,
+      };
+    });
+
+    return {
+      notifications,
+      total: notifications.length,
+    };
+  }
+
   async findOne(
     userId: string,
     sessionId: string,
   ): Promise<StudySessionResponse> {
-    console.log(
-      `[StudySession] findOne called - userId: ${userId}, sessionId: ${sessionId}`,
-    );
-
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
       .select('*')
@@ -693,26 +854,11 @@ export class StudySessionService {
       .eq('user_id', userId)
       .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
-    if (error) {
-      console.log(`[StudySession] findOne error: ${error.message}`);
-    }
-    if (!data) {
-      console.log(
-        `[StudySession] findOne - no data returned for sessionId: ${sessionId}, userId: ${userId}`,
-      );
-    }
-
     if (error || !data) {
       throw new NotFoundException('Study session not found');
     }
 
-    return {
-      id: data.id,
-      user_id: data.user_id,
-      title: data.title,
-      subject: data.subject,
-      created_at: data.created_at,
-    };
+    return mapSessionRow(data);
   }
 
   async update(
@@ -720,21 +866,43 @@ export class StudySessionService {
     sessionId: string,
     updateDto: UpdateStudySessionDto,
   ): Promise<StudySessionResponse> {
-    const { title } = updateDto;
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
 
-    if (!title || title.trim().length === 0) {
-      throw new BadRequestException('Title cannot be empty');
+    if (updateDto.title !== undefined) {
+      if (!updateDto.title || updateDto.title.trim().length === 0) {
+        throw new BadRequestException('Title cannot be empty');
+      }
+      updateData.title = updateDto.title.trim();
+    }
+
+    if (updateDto.subject !== undefined) {
+      updateData.subject = updateDto.subject?.trim() || null;
+    }
+
+    if (updateDto.scheduledStartAt !== undefined) {
+      updateData.scheduled_start_at = updateDto.scheduledStartAt || null;
+    }
+
+    if (updateDto.plannedDurationMinutes !== undefined) {
+      updateData.planned_duration_minutes =
+        updateDto.plannedDurationMinutes || null;
+    }
+
+    if (Object.keys(updateData).length === 1) {
+      throw new BadRequestException('No session fields provided');
     }
 
     await this.findOne(userId, sessionId);
 
     const { data, error } = (await supabaseAdmin
       .from('study_sessions')
-      .update({ title: title.trim() })
+      .update(updateData)
       .eq('id', sessionId)
       .eq('user_id', userId)
       .select()
-      .single()) as { data: StudySessionDbRow | null; error: null };
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
 
     if (error || !data) {
       mapSupabaseError(
@@ -743,14 +911,193 @@ export class StudySessionService {
       );
     }
 
-    // TypeScript knows data is not null after mapSupabaseError (it throws)
-    return {
-      id: data.id,
-      user_id: data.user_id,
-      title: data.title,
-      subject: data.subject,
-      created_at: data.created_at,
+    return mapSessionRow(data);
+  }
+
+  async start(
+    userId: string,
+    sessionId: string,
+  ): Promise<StudySessionResponse> {
+    const session = await this.findOne(userId, sessionId);
+    const startedAt = session.started_at ?? new Date().toISOString();
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update({
+        status: StudySessionStatus.IN_PROGRESS,
+        started_at: startedAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'start session',
+      );
+    }
+
+    return mapSessionRow(data);
+  }
+
+  async resume(
+    userId: string,
+    sessionId: string,
+  ): Promise<StudySessionResponse> {
+    const session = await this.findOne(userId, sessionId);
+    const startedAt = session.started_at ?? new Date().toISOString();
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update({
+        status: StudySessionStatus.IN_PROGRESS,
+        started_at: startedAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'resume session',
+      );
+    }
+
+    return mapSessionRow(data);
+  }
+
+  async pause(
+    userId: string,
+    sessionId: string,
+  ): Promise<StudySessionResponse> {
+    await this.findOne(userId, sessionId);
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update({
+        status: StudySessionStatus.PAUSED,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'pause session',
+      );
+    }
+
+    return mapSessionRow(data);
+  }
+
+  async complete(
+    userId: string,
+    sessionId: string,
+  ): Promise<StudySessionResponse> {
+    await this.findOne(userId, sessionId);
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update({
+        status: StudySessionStatus.COMPLETED,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'complete session',
+      );
+    }
+
+    return mapSessionRow(data);
+  }
+
+  async updateCheckpoint(
+    userId: string,
+    sessionId: string,
+    updateDto: UpdateStudySessionCheckpointDto,
+  ): Promise<StudySessionResponse> {
+    await this.findOne(userId, sessionId);
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update({
+        last_checkpoint: updateDto.checkpoint ?? null,
+        last_checkpoint_at: new Date().toISOString(),
+        status: StudySessionStatus.IN_PROGRESS,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'update session checkpoint',
+      );
+    }
+
+    return mapSessionRow(data);
+  }
+
+  async setState(
+    userId: string,
+    sessionId: string,
+    updateDto: UpdateStudySessionStateDto,
+  ): Promise<StudySessionResponse> {
+    const session = await this.findOne(userId, sessionId);
+
+    const payload: Record<string, unknown> = {
+      status: updateDto.status,
+      updated_at: new Date().toISOString(),
     };
+
+    if (updateDto.checkpoint !== undefined) {
+      payload.last_checkpoint = updateDto.checkpoint;
+      payload.last_checkpoint_at = new Date().toISOString();
+    }
+
+    if (updateDto.status === StudySessionStatus.IN_PROGRESS) {
+      payload.started_at = session.started_at ?? new Date().toISOString();
+    }
+
+    if (updateDto.status === StudySessionStatus.COMPLETED) {
+      payload.completed_at = new Date().toISOString();
+    }
+
+    const { data, error } = (await supabaseAdmin
+      .from('study_sessions')
+      .update(payload)
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select()
+      .single()) as { data: StudySessionDbRow | null; error: SupabaseError };
+
+    if (error || !data) {
+      mapSupabaseError(
+        error || new Error('Session not found'),
+        'update session state',
+      );
+    }
+
+    return mapSessionRow(data);
   }
 
   async remove(

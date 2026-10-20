@@ -8,14 +8,36 @@ CREATE TABLE IF NOT EXISTS public.study_sessions (
     user_id UUID NOT NULL,
     title TEXT NOT NULL,
     subject TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    scheduled_start_at TIMESTAMPTZ,
+    planned_duration_minutes INTEGER,
+    status TEXT NOT NULL DEFAULT 'draft',
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    last_checkpoint JSONB,
+    last_checkpoint_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE public.study_sessions
+ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS planned_duration_minutes INTEGER,
+ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft',
+ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_checkpoint JSONB,
+ADD COLUMN IF NOT EXISTS last_checkpoint_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 -- Create index for faster queries on user_id
 CREATE INDEX IF NOT EXISTS idx_study_sessions_user_id ON public.study_sessions(user_id);
 
 -- Create index for ordering by created_at
 CREATE INDEX IF NOT EXISTS idx_study_sessions_created_at ON public.study_sessions(created_at DESC);
+
+-- Create indexes for scheduled and active sessions
+CREATE INDEX IF NOT EXISTS idx_study_sessions_status ON public.study_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_scheduled_start_at ON public.study_sessions(scheduled_start_at DESC);
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.study_sessions ENABLE ROW LEVEL SECURITY;

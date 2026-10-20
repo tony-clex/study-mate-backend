@@ -12,6 +12,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { StudySessionService } from './study-session.service';
@@ -21,6 +22,8 @@ import { CollaborationService } from './collaboration.service';
 import {
   CreateStudySessionDto,
   UpdateStudySessionDto,
+  UpdateStudySessionCheckpointDto,
+  UpdateStudySessionStateDto,
   CreateSessionNoteDto,
   UpdateSessionNoteDto,
   CreateSessionFileDto,
@@ -43,6 +46,8 @@ interface AuthenticatedRequest extends Request {
 @Controller('api')
 @UseGuards(JwtAuthGuard)
 export class StudySessionController {
+  private readonly logger = new Logger(StudySessionController.name);
+
   constructor(
     private readonly studySessionService: StudySessionService,
     private readonly spacedCardService: SpacedCardService,
@@ -58,7 +63,14 @@ export class StudySessionController {
   ) {
     const userId = req.user.id;
     const result = await this.studySessionService.create(userId, createDto);
-    await this.progressService.recordActivity(userId, 'session');
+    try {
+      await this.progressService.recordActivity(userId, 'session');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `[create] Session created, but progress tracking failed: ${message}`,
+      );
+    }
     return result;
   }
 
@@ -66,6 +78,18 @@ export class StudySessionController {
   async findAll(@Req() req: AuthenticatedRequest) {
     const userId = req.user.id;
     return this.studySessionService.findAll(userId);
+  }
+
+  @Get('session/unfinished')
+  async findUnfinished(@Req() req: AuthenticatedRequest) {
+    const userId = req.user.id;
+    return this.studySessionService.findUnfinished(userId);
+  }
+
+  @Get('session/notifications')
+  async getNotifications(@Req() req: AuthenticatedRequest) {
+    const userId = req.user.id;
+    return this.studySessionService.getNotifications(userId);
   }
 
   // IMPORTANT: Specific routes must come BEFORE parameterized routes
@@ -86,6 +110,62 @@ export class StudySessionController {
   ) {
     const userId = req.user.id;
     return this.studySessionService.update(userId, id, updateDto);
+  }
+
+  @Post('session/:id/start')
+  async startSession(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.start(userId, id);
+  }
+
+  @Post('session/:id/resume')
+  async resumeSession(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.resume(userId, id);
+  }
+
+  @Post('session/:id/pause')
+  async pauseSession(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.pause(userId, id);
+  }
+
+  @Post('session/:id/complete')
+  async completeSession(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.complete(userId, id);
+  }
+
+  @Patch('session/:id/checkpoint')
+  async updateSessionCheckpoint(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateDto: UpdateStudySessionCheckpointDto,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.updateCheckpoint(userId, id, updateDto);
+  }
+
+  @Patch('session/:id/state')
+  async updateSessionState(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateDto: UpdateStudySessionStateDto,
+  ) {
+    const userId = req.user.id;
+    return this.studySessionService.setState(userId, id, updateDto);
   }
 
   @Delete('session/:id')

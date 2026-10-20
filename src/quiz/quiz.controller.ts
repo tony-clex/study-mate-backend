@@ -48,6 +48,7 @@ interface SuggestTopicsDto {
 interface GenerateQuizDto {
   topic: string;
   numQuestions: number;
+  difficulty: 'easy' | 'medium' | 'hard';
   fileName?: string;
   sourceText?: string;
 }
