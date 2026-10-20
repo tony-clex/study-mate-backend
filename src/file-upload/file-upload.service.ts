@@ -59,7 +59,7 @@ export class FileUploadService {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ];
 
-  private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
+  private readonly maxFileSize = 50 * 1024 * 1024; // 50MB
 
   // 2. Add AiService to the constructor
   constructor(
@@ -291,17 +291,43 @@ export class FileUploadService {
     }
   }
 
-  // deleteFile and getSignedUrl stay exactly as they were...
   async deleteFile(fileUrl: string): Promise<void> {
     try {
       const bucketSearchStr = `${this.bucketName}/`;
       const startIndex = fileUrl.indexOf(bucketSearchStr);
       if (startIndex === -1) throw new BadRequestException('Invalid file URL');
       const filePath = fileUrl.substring(startIndex + bucketSearchStr.length);
-      const { error } = await supabaseAdmin.storage
+
+      // 1. Delete from Supabase storage first
+      const { error: storageError } = await supabaseAdmin.storage
         .from(this.bucketName)
         .remove([filePath]);
-      if (error) throw new InternalServerErrorException('Delete failed');
+      if (storageError)
+        throw new InternalServerErrorException('Storage delete failed');
+
+      // 2. Delete session_files entries by file_url (covers all sessions)
+      const { error: sessionError } = await supabaseAdmin
+        .from('session_files')
+        .delete()
+        .eq('file_url', fileUrl);
+      if (sessionError) {
+        this.logger.warn(
+          'Failed to delete session_files:',
+          sessionError.message,
+        );
+      }
+
+      // 3. Delete document (cascades to document_chunks via FK)
+      const { error: docError } = await supabaseAdmin
+        .from('documents')
+        .delete()
+        .eq('file_url', fileUrl);
+      if (docError) {
+        // Ignore "no rows" error - already deleted
+        if (!docError.message?.toLowerCase().includes('no rows')) {
+          this.logger.warn('Failed to delete document:', docError.message);
+        }
+      }
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Failed to delete file');

@@ -5,7 +5,25 @@ import {
   IsOptional,
   IsUrl,
   IsNumber,
+  IsDateString,
+  IsEnum,
+  IsObject,
+  Min,
 } from 'class-validator';
+
+export enum StudySessionStatus {
+  DRAFT = 'draft',
+  SCHEDULED = 'scheduled',
+  IN_PROGRESS = 'in_progress',
+  PAUSED = 'paused',
+  COMPLETED = 'completed',
+}
+
+export enum StudySessionNotificationType {
+  UNFINISHED_SESSION = 'unfinished_session',
+  SCHEDULED_SESSION = 'scheduled_session',
+  RESUME_SESSION = 'resume_session',
+}
 
 export class CreateStudySessionDto {
   @IsString()
@@ -15,12 +33,49 @@ export class CreateStudySessionDto {
   @IsString()
   @IsOptional()
   subject?: string;
+
+  @IsDateString()
+  @IsOptional()
+  scheduledStartAt?: string;
+
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  plannedDurationMinutes?: number;
 }
 
 export class UpdateStudySessionDto {
   @IsString()
-  @IsNotEmpty({ message: 'Title is required' })
-  title: string;
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  subject?: string;
+
+  @IsDateString()
+  @IsOptional()
+  scheduledStartAt?: string;
+
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  plannedDurationMinutes?: number;
+}
+
+export class UpdateStudySessionCheckpointDto {
+  @IsObject()
+  @IsOptional()
+  checkpoint?: Record<string, unknown>;
+}
+
+export class UpdateStudySessionStateDto {
+  @IsEnum(StudySessionStatus)
+  status: StudySessionStatus;
+
+  @IsObject()
+  @IsOptional()
+  checkpoint?: Record<string, unknown>;
 }
 
 export class StudySessionParamsDto {
@@ -33,12 +88,35 @@ export interface StudySessionResponse {
   user_id: string;
   title: string;
   subject: string | null;
+  scheduled_start_at: string | null;
+  planned_duration_minutes: number | null;
+  status: StudySessionStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  last_checkpoint: Record<string, unknown> | null;
+  last_checkpoint_at: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface StudySessionListResponse {
   sessions: StudySessionResponse[];
   total: number;
+}
+
+export interface StudySessionNotificationResponse {
+  id: string;
+  session_id: string;
+  title: string;
+  message: string;
+  type: StudySessionNotificationType;
+  status: StudySessionStatus;
+  due_at: string | null;
+  action: 'resume' | 'open';
+  action_payload: {
+    sessionId: string;
+  };
+  created_at: string;
 }
 
 export class CreateSessionNoteDto {

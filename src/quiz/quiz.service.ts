@@ -33,6 +33,7 @@ interface QuizTopicInput {
 interface GenerateQuizInput {
   topic: string;
   numQuestions: number;
+  difficulty: 'easy' | 'medium' | 'hard';
   fileName?: string;
   sourceText?: string;
 }
@@ -367,15 +368,32 @@ Respond as a JSON array of topic strings.`;
   }
 
   private parseJsonResponse(text: string, isArray = false): unknown {
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/) || text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+    // First, try to find a JSON object or array wrapped in markdown-style code fences
+    let jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[1]);
+      } catch (error) {
+        const err = error as Error;
+        this.logger.warn(
+          `[QuizService] JSON parse error in fenced block: ${err.message}`,
+        );
+        // Fall through to try parsing the whole string
       }
-    } catch (error) {
-      const err = error as Error;
-      this.logger.warn(`[QuizService] JSON parse error: ${err.message}`);
     }
+
+    // If no fenced block, try to find the first occurrence of a JSON object or array
+    jsonMatch = text.match(/\{[\s\S]*\}/) || text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (error) {
+        const err = error as Error;
+        this.logger.warn(`[QuizService] JSON parse error: ${err.message}`);
+      }
+    }
+
+    // If all parsing fails, return the default value
     return isArray ? [] : {};
   }
 }

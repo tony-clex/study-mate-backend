@@ -13,7 +13,7 @@ VALUES (
   'study-files',
   'study-files',
   true,
-  10485760, -- 10MB in bytes
+  52428800, -- 50MB in bytes for study files
   ARRAY[
     'image/jpeg',
     'image/jpg',

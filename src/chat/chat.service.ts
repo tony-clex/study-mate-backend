@@ -460,7 +460,7 @@ export class ChatService {
 
   private async generateWithGemini(prompt: string): Promise<string> {
     const chatModel = this.genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
     });
     const chatResult = await chatModel.generateContent(prompt);
     const response = chatResult.response;
@@ -470,7 +470,7 @@ export class ChatService {
   private async generateWithGroq(prompt: string): Promise<string> {
     const completion = await this.groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.1-8b-instant',
+      model: 'llama3-8b-8192',
     });
     return completion.choices[0]?.message?.content || '';
   }
@@ -478,7 +478,7 @@ export class ChatService {
   private async generateWithOpenRouter(prompt: string): Promise<string> {
     const completion = await this.openai.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'google/gemini-flash-1.5',
+      model: 'google/gemini-2.5-flash',
     });
     return completion.choices[0]?.message?.content || '';
   }
@@ -574,15 +574,24 @@ export class ChatService {
         };
       }
 
-      const queryEmbedding = await this.createQueryEmbedding(question);
-      const rawChunks = queryEmbedding
-        ? await this.findRelevantChunks(
-            userId,
-            queryEmbedding,
-            resolvedDocumentId,
-          )
-        : await this.getRecentChunks(userId, resolvedDocumentId);
-      const documentScoped = Boolean(resolvedDocumentId);
+      // Only retrieve document chunks when there is explicit file context.
+      // General questions (no file selected) should answer from general knowledge,
+      // not from the user's uploaded documents.
+      let rawChunks: MatchedChunk[] = [];
+      let documentScoped = false;
+
+      if (hasExplicitFileContext || resolvedDocumentId) {
+        documentScoped = Boolean(resolvedDocumentId);
+        const queryEmbedding = await this.createQueryEmbedding(question);
+        rawChunks = queryEmbedding
+          ? await this.findRelevantChunks(
+              userId,
+              queryEmbedding,
+              resolvedDocumentId,
+            )
+          : await this.getRecentChunks(userId, resolvedDocumentId);
+      }
+
       const chunks = rawChunks.filter((chunk) =>
         this.isUsableRetrievedChunk(chunk.content),
       );

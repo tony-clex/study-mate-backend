@@ -5,14 +5,18 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { FlashcardService } from './flashcard.service';
+import { ProcessingService } from '../documents/processing.service';
 
 interface GenerateFlashcardsDto {
   numCards: number;
   fileName: string;
   sourceText?: string;
   mimeType?: string;
+  fileUrl?: string;
+  fileType?: string;
 }
 
 interface ModifyCardDto {
@@ -41,7 +45,10 @@ interface RegenerateCardDto {
 export class FlashcardController {
   private readonly logger = new Logger(FlashcardController.name);
 
-  constructor(private readonly flashcardService: FlashcardService) {}
+  constructor(
+    private readonly flashcardService: FlashcardService,
+    private readonly processingService: ProcessingService,
+  ) {}
 
   @Post('generate')
   @HttpCode(HttpStatus.OK)
@@ -50,7 +57,38 @@ export class FlashcardController {
       `[FlashcardController] Generating ${dto.numCards} flashcards for ${dto.fileName}`,
     );
 
-    const result = await this.flashcardService.generateFlashcards(dto);
+    if ((!dto.sourceText || !dto.sourceText.trim()) && dto.fileUrl) {
+      try {
+        const extractedText = await this.processingService.extractText(
+          dto.fileUrl,
+          dto.fileType || dto.mimeType || 'application/octet-stream',
+        );
+
+        if (extractedText?.trim()) {
+          dto.sourceText = extractedText.trim();
+          this.logger.log(
+            `[FlashcardController] Extracted ${dto.sourceText.length} characters from ${dto.fileName}`,
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
+        throw new BadRequestException(
+          `Could not extract source text for flashcards: ${message}`,
+        );
+      }
+    }
+
+    if (!dto.sourceText || !dto.sourceText.trim()) {
+      throw new BadRequestException(
+        'No source text was provided. Extract the document text before generating flashcards.',
+      );
+    }
+
+    const result = await this.flashcardService.generateFlashcards({
+      ...dto,
+      sourceText: dto.sourceText.trim(),
+    });
 
     return { success: true, ...result };
   }

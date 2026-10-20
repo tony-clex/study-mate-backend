@@ -36,7 +36,7 @@
 import 'reflect-metadata';
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
-import { json } from 'express';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { setDefaultResultOrder } from 'node:dns';
 
@@ -49,6 +49,7 @@ async function bootstrap() {
 
   // Standard JSON parser with increased limit
   app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ limit: '50mb' }));
 
   // 1. ENABLE CORS
   app.enableCors({
